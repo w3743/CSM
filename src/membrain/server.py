@@ -29,7 +29,7 @@ def create_handler(db_path: str | Path, api_key: str | None = None):
     shared_engine = CSMEngine(db)
 
     class CSMRequestHandler(BaseHTTPRequestHandler):
-        server_version = "CSMSidecar/1.0"
+        server_version = "MemBrain/1.0"
 
         def do_GET(self) -> None:
             if self.path == "/" or self.path == "/admin":
@@ -39,7 +39,7 @@ def create_handler(db_path: str | Path, api_key: str | None = None):
                 self._send_html(admin_console_html(api_key=configured_api_key))
                 return
             if self.path == "/health":
-                self._send_json({"ok": True, "service": "csm-memory-sidecar"})
+                self._send_json({"ok": True, "service": "mb-memory-sidecar"})
                 return
             if self.path == "/admin/health":
                 if not self._authorized():
@@ -327,7 +327,7 @@ def admin_console_html(api_key: str | None = None) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CSM 记忆控制台</title>
+  <title>MB 记忆控制台</title>
   <style>
     :root { color-scheme: light; --bg: #f6f7f9; --panel: #ffffff; --panel-2: #eef2f6; --text: #1d2430; --muted: #667085; --line: #d7dde5; --accent: #0f766e; --accent-2: #2563eb; --danger: #b42318; --warn: #b54708; --radius: 8px; font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif; }
     * { box-sizing: border-box; }
@@ -384,7 +384,7 @@ def admin_console_html(api_key: str | None = None) -> str:
 <body>
   <div class="shell">
     <aside>
-      <div class="brand">CSM</div>
+      <div class="brand">MemBrain</div>
       <div class="nav">
         <button data-view="dashboard" class="active">总览</button>
         <button data-view="memories">记忆库</button>
@@ -633,7 +633,7 @@ def run_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8765, a
     handler_cls, cleanup = create_handler(db_path, api_key=api_key)
     server = HTTPServer((host, port), handler_cls)
     try:
-        print(f"CSM memory sidecar listening on http://{host}:{port}")
+        print(f"MemBrain sidecar listening on http://{host}:{port}")
         server.serve_forever()
     finally:
         cleanup()

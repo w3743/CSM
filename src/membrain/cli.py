@@ -1,5 +1,5 @@
 """
-CSM 记忆系统 — 命令行接口
+MB 记忆系统 — 命令行接口
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from .strength import resolve_layer
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Continuous Strength Memory")
-    parser.add_argument("--db", default=os.environ.get("CSM_DB", "csm_memory.db"), help="SQLite database path")
+    parser.add_argument("--db", default=os.environ.get("CSM_DB", "membrain_memory.db"), help="SQLite database path")
     sub = parser.add_subparsers(dest="command", required=True)
 
     add_p = sub.add_parser("add", help="Add a memory")

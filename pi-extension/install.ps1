@@ -23,7 +23,7 @@ try {
 
 # 检查 CSM 项目
 $csmDir = (Get-Item $scriptDir).Parent.FullName
-if (-not (Test-Path "$csmDir\src\csm_agent\server.py")) {
+if (-not (Test-Path "$csmDir\src\membrain\server.py")) {
     Write-Host "  ✗ 未找到 CSM 项目，请确认脚本位于 pi-extension/ 目录中" -ForegroundColor Red
     exit 1
 }
@@ -43,8 +43,8 @@ if (-not (Test-Path $extDir)) {
     New-Item -ItemType Directory -Path $extDir -Force | Out-Null
 }
 
-$linkPath = "$extDir\csm-memory.ts"
-$targetPath = "$scriptDir\csm-memory.ts"
+$linkPath = "$extDir\mb-memory.ts"
+$targetPath = "$scriptDir\mb-memory.ts"
 
 if (Test-Path $linkPath) {
     Write-Host "  ! 扩展链接已存在，跳过" -ForegroundColor Yellow

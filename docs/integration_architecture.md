@@ -65,7 +65,7 @@ For `UPDATE`, `SUPERSEDE`, `ARCHIVE`, and `DELETE`, `target_id` must be one of t
 Use `PiAgentMemoryHook` when the host runtime exposes before/after lifecycle callbacks.
 
 ```python
-from csm_agent import CSMEngine, CSMMemoryAdapter, PiAgentMemoryHook
+from membrain import CSMEngine, CSMMemoryAdapter, PiAgentMemoryHook
 
 engine = CSMEngine("piagent_memory.db")
 hook = PiAgentMemoryHook(CSMMemoryAdapter(engine))
@@ -75,7 +75,7 @@ state = hook.before_agent_start(
     state={"user_id": "u1", "project_id": "my-project"},
 )
 
-# Add state["csm_memory_context"] to the agent prompt.
+# Add state["membrain_memory_context"] to the agent prompt.
 
 state = hook.agent_end(
     user_input="安装依赖用什么命令？",
@@ -136,7 +136,7 @@ This shape is intentionally transport-neutral. It can be exposed through an HTTP
 Use `HermesMemoryProvider` when the host runtime already has a memory provider abstraction.
 
 ```python
-from csm_agent import CSMEngine, CSMMemoryAdapter, HermesMemoryProvider
+from membrain import CSMEngine, CSMMemoryAdapter, HermesMemoryProvider
 
 provider = HermesMemoryProvider(CSMMemoryAdapter(CSMEngine("hermes_memory.db")))
 provider.remember("Hermes 项目回答风格：简洁，避免无关解释。", user_id="u1", project_id="hermes")
@@ -177,7 +177,7 @@ Poor candidates:
 
 ## Next Production Steps
 
-1. Use local semantic retrieval everywhere: install `sentence-transformers`, set `CSM_EMBEDDING_BACKEND=local`, and set `CSM_EMBEDDING_MODEL` to a local BGE-large-zh-v1.5 directory such as `models\bge-large-zh-v1.5`; then run `python -m csm_agent.cli reindex-embeddings`.
+1. Use local semantic retrieval everywhere: install `sentence-transformers`, set `CSM_EMBEDDING_BACKEND=local`, and set `CSM_EMBEDDING_MODEL` to a local BGE-large-zh-v1.5 directory such as `models\bge-large-zh-v1.5`; then run `python -m membrain.cli reindex-embeddings`.
 2. For larger memory stores, add sqlite-vec or another ANN vector index after the local embedding quality is validated.
 3. Configure `CSM_DEEPSEEK_API_KEY` or `DEEPSEEK_API_KEY` to enable `DeepSeekMemoryExtractor`.
 4. Keep `MemorySecurityPolicy` enabled so sensitive content is labeled by sensitivity without destroying the original value.
@@ -187,11 +187,11 @@ Poor candidates:
 ## Evaluation Commands
 
 ```powershell
-python -m csm_agent.cli eval-extractor
-python -m csm_agent.cli eval-retrieval
-python -m csm_agent.cli eval-e2e
-python -m csm_agent.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
-python -m csm_agent.cli deepseek-probe
+python -m membrain.cli eval-extractor
+python -m membrain.cli eval-retrieval
+python -m membrain.cli eval-e2e
+python -m membrain.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
+python -m membrain.cli deepseek-probe
 ```
 
 The current local fixtures cover memory extraction schema behavior, retrieval quality, stale-memory suppression, temporary-information handling, and multi-turn memory lifecycle behavior. Fixture extraction uses mock LLM output and does not call DeepSeek.
@@ -201,7 +201,7 @@ The current local fixtures cover memory extraction schema behavior, retrieval qu
 Run:
 
 ```powershell
-python -m csm_agent.cli --db csm_memory.db serve --host 127.0.0.1 --port 8765
+python -m membrain.cli --db membrain_memory.db serve --host 127.0.0.1 --port 8765
 ```
 
 Endpoints:

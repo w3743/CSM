@@ -19,7 +19,7 @@
 13. CLI 演示：支持 add、search、extract、eval-extractor、supersede、sleep、health、demo。
 14. 接入适配层：提供 PiAgent hook、OpenClaw sidecar payload 和 Hermes provider 三种集成外壳。
 15. HTTP sidecar：提供 `/health`、`/openapi.json`、`/pre_prompt`、`/post_run`、`/remember`、`/context`、`/sleep` 外部服务入口。
-16. 图形化管理界面：提供 `/admin` CSM 记忆控制台，包含总览、记忆库、检索实验室、仲裁实验室。
+16. 图形化管理界面：提供 `/admin` MB 记忆控制台，包含总览、记忆库、检索实验室、仲裁实验室。
 17. sidecar 安全：支持可选 API key，POST 端点可通过 `X-CSM-API-Key` 或 `Authorization: Bearer` 保护。
 18. 打包配置：补充 `pyproject.toml` build-system、src-layout package discovery 和 console script。
 19. 评测体系：提供抽取、检索和端到端 JSONL fixture，输出 accuracy、Recall@k、Precision@k、污染率和过期引用率。
@@ -30,13 +30,13 @@
 ```powershell
 set PYTHONPATH=src;tests
 python tests\run_tests.py
-python -m csm_agent.cli demo
-python -m csm_agent.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
-python -m csm_agent.cli deepseek-probe
-python -m csm_agent.cli eval-extractor
-python -m csm_agent.cli eval-retrieval
-python -m csm_agent.cli eval-e2e
-python -m csm_agent.cli serve --host 127.0.0.1 --port 8765
+python -m membrain.cli demo
+python -m membrain.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
+python -m membrain.cli deepseek-probe
+python -m membrain.cli eval-extractor
+python -m membrain.cli eval-retrieval
+python -m membrain.cli eval-e2e
+python -m membrain.cli serve --host 127.0.0.1 --port 8765
 ```
 
 当前验证结果：标准 pytest 通过 33 项测试；mock LLM 抽取评测 5/5；检索评测 Recall@k = 1.0、forbidden_hit_rate = 0.0；端到端评测 accuracy = 1.0、memory_pollution_rate = 0.0、stale_reference_rate = 0.0。

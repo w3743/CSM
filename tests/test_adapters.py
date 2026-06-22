@@ -1,7 +1,7 @@
-from csm_agent.adapters import AgentEvent, AgentScope, CSMMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, PiAgentMemoryHook
-from csm_agent.engine import CSMEngine
-from csm_agent.extractor import JSONMemoryExtractor
-from csm_agent.models import MemoryOp
+from membrain.adapters import AgentEvent, AgentScope, CSMMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, PiAgentMemoryHook
+from membrain.engine import CSMEngine
+from membrain.extractor import JSONMemoryExtractor
+from membrain.models import MemoryOp
 
 
 def fake_add_extractor():
@@ -20,8 +20,8 @@ def test_piagent_hook_injects_and_commits_memory(tmp_path) -> None:
         hook = PiAgentMemoryHook(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
         state = hook.before_agent_start("安装依赖用什么命令？", {"user_id": "u1", "project_id": "demo"})
 
-        assert "bun install" in state["csm_memory_context"]
-        assert state["csm_memory_ids"]
+        assert "bun install" in state["membrain_memory_context"]
+        assert state["membrain_memory_ids"]
 
         state["csm_explicit_memories"] = ["用户希望回答先给结论，再给必要步骤。"]
         final_state = hook.agent_end("安装依赖用什么命令？", "使用 bun install。", state)

@@ -6,7 +6,7 @@ import os
 import threading
 from http.server import HTTPServer
 
-from csm_agent.server import create_handler
+from membrain.server import create_handler
 
 
 class SidecarTestServer:

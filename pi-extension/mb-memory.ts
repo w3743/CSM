@@ -17,7 +17,7 @@
  * 环境变量：
  *   CSM_PROJECT_DIR     CSM 项目根目录（默认：本文件所在目录的上级）
  *   CSM_PORT            sidecar 端口（默认：19876）
- *   CSM_DB              数据库路径（默认：~/.pi/agent/csm_memory.db）
+ *   CSM_DB              数据库路径（默认：~/.pi/agent/membrain_memory.db）
  *   CSM_EMBEDDING_MODEL 本地 BGE 模型路径（默认：<项目>/models/bge-large-zh-v1.5）
  */
 
@@ -44,12 +44,12 @@ const CSM_PROJECT_DIR = (() => {
   }
   return dir;
 })();
-/** pip 安装后 csm_agent 在 site-packages，无需 PYTHONPATH */
+/** pip 安装后 membrain 在 site-packages，无需 PYTHONPATH */
 const CSM_IS_PIP_INSTALLED = (() => {
   try {
     const result = spawnSync(
       process.platform === "win32" ? "python" : "python3",
-      ["-c", "import csm_agent"],
+      ["-c", "import membrain"],
       { timeout: 5000 }
     );
     return result.status === 0;
@@ -64,7 +64,7 @@ const CSM_EMBEDDING_MODEL =
   (CSM_IS_PIP_INSTALLED ? "" : join(CSM_PROJECT_DIR, "models", "bge-large-zh-v1.5"));
 const CSM_DB_PATH =
   process.env.CSM_DB ||
-  join(homedir(), ".pi", "agent", "csm_memory.db");
+  join(homedir(), ".pi", "agent", "membrain_memory.db");
 
 // 启动 sidecar 的最大等待时间（毫秒）
 const STARTUP_TIMEOUT_MS = 15_000;
@@ -127,7 +127,7 @@ async function checkHealth(): Promise<boolean> {
   }
 }
 
-/** 查找可用的 Python 解释器——优先能 import csm_agent 的 */
+/** 查找可用的 Python 解释器——优先能 import membrain 的 */
 function findPython(): string {
   const isWin = process.platform === "win32";
   const candidates = isWin ? [
@@ -142,7 +142,7 @@ function findPython(): string {
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
-      const result = spawnSync(candidate, ["-c", "import csm_agent"], {
+      const result = spawnSync(candidate, ["-c", "import membrain"], {
         encoding: "utf-8", timeout: 5000,
       });
       if (result.status === 0) return candidate;
@@ -156,7 +156,7 @@ function spawnSidecar(): ChildProcess {
   ensureDbDir(CSM_DB_PATH);
   const pythonCmd = findPython();
   const proc = spawn(pythonCmd, [
-    "-m", "csm_agent.cli", "serve",
+    "-m", "membrain.cli", "serve",
     "--host", CSM_HOST,
     "--port", String(CSM_PORT),
   ], {
@@ -221,7 +221,7 @@ function sleep(ms: number): Promise<void> {
 function stopSidecar(): void {
   if (sidecarProcess) {
     const pid = sidecarProcess.pid;
-    console.log(`[csm-memory] stopping sidecar (pid=${pid})...`);
+    console.log(`[mb-memory] stopping sidecar (pid=${pid})...`);
     try {
       if (process.platform === "win32") {
         // Windows: 使用 taskkill 确保整个进程树被终止
@@ -264,12 +264,12 @@ function extractText(messages: PiMessage[], role: string): string {
     .join("\n");
 }
 
-/** 检查 csm-agent Python 包是否已安装 */
+/** 检查 membrain Python 包是否已安装 */
 function checkCSMInstalled(): boolean {
   try {
     const result = spawnSync(
       process.platform === "win32" ? "python" : "python3",
-      ["-c", "import csm_agent"],
+      ["-c", "import membrain"],
       { encoding: "utf-8", timeout: 5000 }
     );
     return result.status === 0;
@@ -286,9 +286,9 @@ export default async function (pi: ExtensionAPI) {
   // ── 检查 Python 后端是否已安装 ──────────────────────────────
   if (!checkCSMInstalled()) {
     console.log(
-      "[csm-memory] csm-agent Python package not found.\n" +
-      "  Install it first: pip install csm-agent\n" +
-      "  Or for full features: pip install 'csm-agent[local-embedding]'\n" +
+      "[mb-memory] membrain Python package not found.\n" +
+      "  Install it first: pip install membrain\n" +
+      "  Or for full features: pip install 'membrain[local-embedding]'\n" +
       "  Memory features disabled this session."
     );
     return;
@@ -299,17 +299,17 @@ export default async function (pi: ExtensionAPI) {
     if (await checkHealth()) {
       // Sidecar 已在运行（可能是上一个 pi 实例留下的，或手动启动的）
       sidecarAvailable = true;
-      console.log("[csm-memory] connected to existing sidecar");
+      console.log("[mb-memory] connected to existing sidecar");
     } else {
-      console.log("[csm-memory] starting CSM sidecar...");
+      console.log("[mb-memory] starting CSM sidecar...");
       sidecarProcess = spawnSidecar();
       const ready = await waitForSidecar(sidecarProcess);
       if (ready) {
         sidecarAvailable = true;
-        console.log("[csm-memory] sidecar ready");
+        console.log("[mb-memory] sidecar ready");
       } else {
-        console.error("[csm-memory] sidecar failed to start within timeout");
-        console.error("[csm-memory] memory features will be disabled this session");
+        console.error("[mb-memory] sidecar failed to start within timeout");
+        console.error("[mb-memory] memory features will be disabled this session");
         sidecarAvailable = false;
       }
     }
@@ -350,7 +350,7 @@ export default async function (pi: ExtensionAPI) {
         };
       }
     } catch (err) {
-      console.error(`[csm-memory] pre_prompt error: ${(err as Error).message}`);
+      console.error(`[mb-memory] pre_prompt error: ${(err as Error).message}`);
     }
   });
 
@@ -377,10 +377,10 @@ export default async function (pi: ExtensionAPI) {
 
       const committed = result.committed_ids as number[] | undefined;
       if (committed && committed.length > 0) {
-        console.log(`[csm-memory] committed memories: ${committed.join(", ")}`);
+        console.log(`[mb-memory] committed memories: ${committed.join(", ")}`);
       }
     } catch (err) {
-      console.error(`[csm-memory] post_run error: ${(err as Error).message}`);
+      console.error(`[mb-memory] post_run error: ${(err as Error).message}`);
     } finally {
       lastMemoryIds = [];
     }
@@ -420,7 +420,7 @@ export default async function (pi: ExtensionAPI) {
 
   /** /csm-health — 查看记忆健康报告 */
   pi.registerCommand("csm-health", {
-    description: "查看 CSM 记忆系统的健康状态",
+    description: "查看 MB 记忆系统的健康状态",
     handler: async (_args, ctx) => {
       if (!sidecarAvailable) {
         ctx.ui.notify("CSM sidecar 未就绪", "error");
@@ -452,7 +452,7 @@ export default async function (pi: ExtensionAPI) {
 
   /** /csm-search <查询> — 搜索记忆库 */
   pi.registerCommand("csm-search", {
-    description: "搜索 CSM 记忆库",
+    description: "搜索 MB 记忆库",
     handler: async (args, ctx) => {
       if (!sidecarAvailable) {
         ctx.ui.notify("CSM sidecar 未就绪", "error");

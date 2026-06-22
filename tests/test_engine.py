@@ -1,8 +1,8 @@
 import os
 
-from csm_agent.engine import CSMEngine
-from csm_agent.embedding import embedding_config_from_env
-from csm_agent.models import MemoryOp, MemoryStatus
+from membrain.engine import CSMEngine
+from membrain.embedding import embedding_config_from_env
+from membrain.models import MemoryOp, MemoryStatus
 
 
 class ConstantEmbeddingBackend:

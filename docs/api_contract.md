@@ -5,7 +5,7 @@ The sidecar exposes a small JSON HTTP API for external agent runtimes.
 Run:
 
 ```powershell
-python -m csm_agent.cli --db csm_memory.db serve --host 127.0.0.1 --port 8765
+python -m membrain.cli --db membrain_memory.db serve --host 127.0.0.1 --port 8765
 ```
 
 Machine-readable contract:
@@ -63,7 +63,7 @@ Environment variables:
 Before enabling live extraction, run:
 
 ```powershell
-python -m csm_agent.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
+python -m membrain.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
 ```
 
 This builds the request and estimates input size locally. It does not call DeepSeek if no key is configured.
@@ -71,7 +71,7 @@ This builds the request and estimates input size locally. It does not call DeepS
 To verify a configured key and network path, use:
 
 ```powershell
-python -m csm_agent.cli deepseek-probe
+python -m membrain.cli deepseek-probe
 ```
 
 This still does not call DeepSeek. Add `--confirm-spend` only when you intentionally want to spend a tiny probe request. The probe uses a fixed prompt, `max_tokens=32`, and sends no user memory content.

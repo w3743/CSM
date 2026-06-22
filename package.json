@@ -1,12 +1,12 @@
 {
-  "name": "csm-memory",
+  "name": "mb-memory",
   "version": "1.0.0",
-  "description": "Continuous Strength Memory for pi agent — cross-session persistent memory with semantic retrieval and LLM-driven arbitration",
-  "keywords": ["pi-package", "memory", "llm", "agent"],
-  "author": "CSM Agent Project",
+  "description": "MemBrain — LLM Agent memory engine with spacing-effect-driven strength model for pi coding agent",
+  "keywords": ["pi-package", "memory", "llm", "agent", "membrain"],
+  "author": "MemBrain Project",
   "license": "MIT",
   "pi": {
-    "extensions": ["./pi-extension/csm-memory.ts"],
-    "image": "https://raw.githubusercontent.com/xxx/csm-agent/main/docs/screenshot.png"
+    "extensions": ["./pi-extension/mb-memory.ts"],
+    "image": "https://raw.githubusercontent.com/xxx/membrain/main/docs/screenshot.png"
   }
 }

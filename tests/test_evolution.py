@@ -1,12 +1,12 @@
 """自适应进化测试"""
 from pathlib import Path
 
-from csm_agent.engine import CSMEngine
-from csm_agent.evolution import (
+from membrain.engine import CSMEngine
+from membrain.evolution import (
     EvolutionEngine, apply_feedback, detect_feedback, inherit_from,
     DECAY_MIN, DECAY_MAX, BOOST_MIN, BOOST_MAX, TRUST_MAX,
 )
-from csm_agent.models import Memory, MemoryStatus, MemoryOp
+from membrain.models import Memory, MemoryStatus, MemoryOp
 
 
 def test_apply_feedback_used() -> None:

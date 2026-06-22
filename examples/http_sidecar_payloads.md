@@ -5,13 +5,13 @@ Start the service:
 ```powershell
 $env:CSM_API_KEY="dev-secret"
 $env:CSM_DEEPSEEK_API_KEY="<your-deepseek-key>"
-python -m csm_agent.cli --db csm_memory.db serve --host 127.0.0.1 --port 8765
+python -m membrain.cli --db membrain_memory.db serve --host 127.0.0.1 --port 8765
 ```
 
 Before starting live extraction, inspect the request locally:
 
 ```powershell
-python -m csm_agent.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
+python -m membrain.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
 ```
 
 ## Health
@@ -23,7 +23,7 @@ curl http://127.0.0.1:8765/health
 Response:
 
 ```json
-{"ok": true, "service": "csm-memory-sidecar"}
+{"ok": true, "service": "mb-memory-sidecar"}
 ```
 
 ## OpenAPI Contract

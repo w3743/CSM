@@ -384,8 +384,8 @@ doc.add_heading('3.4 部署与集成', level=2)
 
 add_body(
     'CSM 以零外部依赖的 pip 包形式发布（可选依赖 sentence-transformers 提供语义搜索）。'
-    '安装后通过 csm-agent serve 命令启动 HTTP Sidecar 和 Web 管理控制台。'
-    'pi Agent 通过 pi-extension/csm-memory.ts 自动集成：'
+    '安装后通过 membrain serve 命令启动 HTTP Sidecar 和 Web 管理控制台。'
+    'pi Agent 通过 pi-extension/mb-memory.ts 自动集成：'
     '扩展启动时自动拉起 Sidecar 子进程，每次对话前检索记忆注入上下文，'
     '每次对话后通过 DeepSeek LLM 仲裁器提取记忆。'
 )

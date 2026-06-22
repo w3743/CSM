@@ -19,8 +19,8 @@ python --version
 
 :: 安装 CSM
 echo.
-echo [1/2] 安装 csm-agent ...
-pip install git+https://github.com/yourname/csm-agent.git
+echo [1/2] 安装 membrain ...
+pip install git+https://github.com/yourname/membrain.git
 if %errorlevel% neq 0 (
     echo [警告] 远程安装失败，尝试从本地安装...
     cd /d "%~dp0"
@@ -55,7 +55,7 @@ echo.
 echo ══════════════════════════════════════
 echo 安装完成！
 echo.
-echo 启动管理控制台: csm-agent serve
+echo 启动管理控制台: membrain serve
 echo 浏览器打开: http://127.0.0.1:8765
 echo.
 echo 日常使用只需启动一次，后台长期运行。

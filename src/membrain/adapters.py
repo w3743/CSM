@@ -196,8 +196,8 @@ class PiAgentMemoryHook:
         scope = _scope_from_state(state)
         context = self.adapter.retrieve(user_input, scope)
         state = dict(state)
-        state["csm_memory_context"] = context.text
-        state["csm_memory_ids"] = context.memory_ids
+        state["membrain_memory_context"] = context.text
+        state["membrain_memory_ids"] = context.memory_ids
         return state
 
     def agent_end(self, user_input: str, agent_output: str, state: dict[str, Any]) -> dict[str, Any]:
@@ -205,7 +205,7 @@ class PiAgentMemoryHook:
         event = AgentEvent(
             user_input=user_input,
             agent_output=agent_output,
-            used_memory_ids=list(state.get("csm_memory_ids", [])),
+            used_memory_ids=list(state.get("membrain_memory_ids", [])),
             explicit_memories=list(state.get("csm_explicit_memories", [])),
             scope=scope,
         )

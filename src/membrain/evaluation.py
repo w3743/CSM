@@ -388,7 +388,7 @@ def evaluate_end_to_end_case(case: EndToEndCase, db_path: str | Path) -> tuple[b
             state = hook.agent_end(item, "已处理。", state)
 
         state = hook.before_agent_start(case.query, state)
-        context = str(state.get("csm_memory_context", ""))
+        context = str(state.get("membrain_memory_context", ""))
         passed = case.expected_contains in context
         if case.forbidden_contains and case.forbidden_contains in context:
             passed = False

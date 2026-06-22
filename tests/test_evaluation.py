@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from csm_agent.engine import CSMEngine
-from csm_agent.evaluation import (
+from membrain.engine import CSMEngine
+from membrain.evaluation import (
     evaluate_end_to_end_fixture, evaluate_mock_llm_fixture, evaluate_retrieval_fixture,
     evaluate_strength_fixture, evaluate_embedding_quality, run_full_evaluation,
     load_extraction_cases, load_retrieval_cases, load_end_to_end_cases, load_strength_cases,

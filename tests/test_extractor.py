@@ -2,11 +2,11 @@ import pytest
 import os
 import json
 
-from csm_agent.extractor import (
+from membrain.extractor import (
     DeepSeekMemoryExtractor, JSONMemoryExtractor, LLMExtractorNotConfigured,
     build_default_extractor, parse_memory_write_plan,
 )
-from csm_agent.models import MemoryOp
+from membrain.models import MemoryOp
 
 
 def test_default_extractor_without_key_is_noop() -> None:
