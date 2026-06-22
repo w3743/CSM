@@ -1,180 +1,150 @@
 # CSM — 连续强度记忆 (Continuous Strength Memory)
 
 <p align="center">
-  <em>简单算法中涌现智能 — 为 LLM Agent 而生的长期记忆子系统</em>
+  <em>为 pi coding agent 设计的持久化记忆子系统</em>
 </p>
 
 ---
 
-## 什么是 CSM
+## 这是什么
 
-CSM 是一个**零外部依赖的 Python 记忆引擎**，为 AI 编码助手提供跨会话持久化记忆能力。
+CSM 是 pi coding agent 的记忆后端，让 pi 能记住跨会话的用户偏好、项目约定和纠正历史。
 
-核心理念：两条简单规则反复作用，涌现出智能的记忆行为——
+技术方案：每条记忆以指数曲线衰减（模拟遗忘），被检索并使用时按 FSRS 间隔效应强化（使用间隔越久，强化收益越大）。DeepSeek LLM 自动从对话中提取值得记住的内容。
 
 ```
-检索得分 = 语义相似度 × 当前强度 × (1 + 经验偏置)
-强度变化 = 指数衰减（遗忘）+ 间隔强化（使用越多、忘得越慢）
+存储: SQLite + FTS5   检索: BGE 语义向量 + 关键词混合
+衰减: R(t) = s₀·e^(-d·t)     强化: FSRS 间隔效应
+仲裁: DeepSeek LLM 自动提取   进化: used/ignored/corrected 反馈自适应
 ```
 
-**“你不用告诉我该怎么记，我自己会学。”**
+核心依赖只有 Python 标准库。`sentence-transformers` 可选（提供语义检索，不装也能用关键词检索）。
 
 ---
 
-## 快速开始
+## 在 pi agent 中使用
 
-### 安装
+### 1. 安装 Python 后端
 
 ```bash
-# 基础安装（SQLite + FTS5 关键词检索）
 pip install git+https://github.com/w3743/CSM.git
-
-# 完整安装（含 BGE 语义向量，推荐）
-pip install "csm-agent[local-embedding]@git+https://github.com/w3743/CSM.git"
-
-# 中国用户：设置 HuggingFace 镜像加速模型下载
-set HF_ENDPOINT=https://hf-mirror.com
+pip install "csm-agent[local-embedding]@git+https://github.com/w3743/CSM.git"  # 含语义向量
 ```
 
-### 配置 DeepSeek LLM 仲裁器
+### 2. 安装 pi 扩展
+
+```bash
+pi install git:github.com/w3743/CSM.git
+```
+
+### 3. 配置 DeepSeek
 
 ```bash
 set DEEPSEEK_API_KEY=sk-xxx
 ```
 
-不配也能用——只是退化为关键词检索，不会自动提取记忆。
-
-### 启动
+### 4. 启动 pi
 
 ```bash
-csm-agent serve
+pi
 ```
 
-浏览器打开 `http://127.0.0.1:8765/admin` 进入中文管理控制台。
+pi 启动时扩展自动拉起 CSM sidecar，之后每次对话：
+- 提问前 → 检索相关记忆，注入到系统提示
+- 回答后 → DeepSeek 仲裁器分析对话，提取新记忆
+
+### 手动管理
+
+```bash
+csm-agent serve           # 单独启动 Sidecar + Web 控制台
+csm-agent health           # 查看健康报告
+```
+
+浏览器打开 `http://127.0.0.1:8765/admin` 进入管理控制台。
 
 ---
 
-## 核心能力
+## 记忆算法概要
 
-| 能力 | 说明 |
+### 强度模型
+
+| 操作 | 公式 | 说明 |
+|------|------|------|
+| 衰减 | R = s₀ · e^(-d · t) | 每天衰减，d 默认 0.02 |
+| 强化 | g = 0.15 · (1-R)^1.4 · (1-trust) | FSRS 间隔效应，R 越低增益越大 |
+| 初始值 | strength=0.6, decay_rate=0.02 | 新记忆强度 |
+
+### 检索模型
+
+```
+score = 语义相似度 × 当前强度 R × (1 + boost)
+```
+
+被纠正的记忆 boost 为负，自动降权。
+
+### 进化反馈
+
+| 反馈 | 行为 |
 |------|------|
-| SQLite + FTS5 持久化 | 零外部依赖，WAL 模式，支持全文检索 |
-| BGE-large-zh-v1.5 语义向量 | 1024 维本地嵌入，中英文混合检索 |
-| 指数衰减 + 间隔强化 | FSRS 风格强度模型，复习越晚增益越大 |
-| 动态 L1/L2/L3 百分位分层 | 自适应阈值，不是硬编码 |
-| DeepSeek LLM 仲裁器 | 自动判断值得记住的内容，支持 ADD/UPDATE/SUPERSEDE/ARCHIVE/DELETE |
-| 自适应进化引擎 | 每条记忆独立调整 decay_rate、boost、trust |
-| HTTP Sidecar 服务 | 标准 REST API，支持 pi/OpenClaw/Hermes 集成 |
-| 中文 Web 管理控制台 | 总览/记忆库/检索实验/仲裁实验/LLM 配置 |
-| OpenAPI 规范 | `/openapi.json` 完整接口文档 |
+| used（被 LLM 引用） | boost +0.05, trust 略增, 强化 |
+| ignored（检索了但没用） | boost 微降，R 越高惩罚越大 |
+| corrected（被用户纠正） | boost -0.2, trust ×0.7, decay ×1.5 |
+
+### 归档
+
+睡眠整理时，R < 0.01（1% 可回忆概率）的记忆自动归档，不再参与检索。
 
 ---
 
-## 记忆生命周期
-
-```
-存入 (strength=0.6)
-  │
-  ▼
-语义检索 ← 每次对话前自动触发
-  │
-  ├─ 被 LLM 引用 → reinforce()：间隔越久增益越大，decay_rate 降低
-  ├─ 被检索但未引用 → apply_feedback("ignored")：轻度降权
-  └─ 被用户纠正 → apply_feedback("corrected")：快速衰减
-  │
-  ▼
-睡眠整理 → R < 0.01 自动归档
-```
-
----
-
-## 架构
-
-```
-pi agent ←→ pi-extension/csm-memory.ts ← HTTP → CSM Python sidecar
-                                                    │
-                                          ┌─────────┼─────────┐
-                                     MemoryStore   CSMEngine  EvolutionEngine
-                                      (SQLite)    (检索/强化)  (自适应)
-                                          │
-                                    BGE Embedding ← DeepSeek LLM
-```
-
----
-
-## CLI 命令
+## 命令行
 
 ```bash
-csm-agent serve          # 启动 HTTP Sidecar + Web 控制台
-csm-agent add "内容"      # 手动存入记忆
-csm-agent search "查询"   # 检索记忆
-csm-agent sleep           # 睡眠整理（归档弱记忆）
-csm-agent health          # 健康报告
-csm-agent demo            # 运行演示
-
-# 评测
-csm-agent eval-all                    # 完整评测套件
-csm-agent eval-extractor              # LLM 提取器评测
-csm-agent eval-retrieval              # 检索评测
-csm-agent eval-e2e                    # 端到端评测
-csm-agent eval-strength               # 强度模型评测
-csm-agent eval-embedding              # 嵌入质量评测
+csm-agent serve                           # 启动 Sidecar
+csm-agent add "内容" --project demo        # 手动存入
+csm-agent search "查询" --project demo     # 检索
+csm-agent sleep                            # 睡眠整理
+csm-agent health                           # 健康报告
+csm-agent demo                             # 演示
+csm-agent eval-all                         # 完整评测
 ```
 
 ---
 
 ## HTTP API
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/health` | GET | 健康检查 |
-| `/pre_prompt` | POST | 检索记忆上下文（Agent 运行前） |
-| `/post_run` | POST | 观察 Agent 交互，提取记忆 |
-| `/remember` | POST | 手动存入一条记忆 |
-| `/context` | POST | Hermes 风格上下文检索 |
-| `/sleep` | POST | 触发睡眠整理 |
-| `/openapi.json` | GET | OpenAPI 规范 |
-| `/admin` | GET | Web 管理控制台 |
+| 端点 | 用途 |
+|------|------|
+| `/pre_prompt` | pi 提问前检索记忆 |
+| `/post_run` | pi 回答后提取记忆 |
+| `/remember` | 手动存入 |
+| `/sleep` | 触发睡眠整理 |
+| `/health` | 健康检查 |
+| `/admin` | Web 管理控制台 |
 
 ---
 
 ## 项目结构
 
 ```
-CSM/
 ├── src/csm_agent/        # 核心代码（14 个模块）
-│   ├── engine.py         # 引擎：检索/强化/睡眠
-│   ├── store.py          # SQLite 存储层 + FTS5
+│   ├── engine.py         # 记忆生命周期
 │   ├── strength.py       # 强度模型（FSRS 风格）
-│   ├── retrieval.py      # 混合检索器
-│   ├── evolution.py      # 自适应进化引擎
-│   ├── embedding.py      # BGE 嵌入后端
-│   ├── extractor.py      # DeepSeek LLM 仲裁器
-│   ├── adapters.py       # 集成适配层（pi/OpenClaw/Hermes）
-│   ├── server.py         # HTTP Sidecar + Web 控制台
-│   ├── security.py       # 安全策略（敏感度标注）
-│   ├── models.py         # 数据模型
-│   ├── cli.py            # 命令行接口
-│   ├── evaluation.py     # 评测体系
-│   ├── llm_config.py     # LLM 配置管理
-│   └── api_contract.py   # OpenAPI 契约
-├── tests/                # 测试用例
-├── eval/                 # 评测数据
-├── pi-extension/         # pi Agent 集成扩展
-├── docs/                 # 设计文档
-├── install.bat           # Windows 一键安装
-├── pyproject.toml        # pip 安装配置
-└── package.json          # pi 包定义
+│   ├── store.py          # SQLite + FTS5
+│   ├── retrieval.py      # 混合检索
+│   ├── evolution.py      # 自适应进化
+│   ├── embedding.py      # BGE 嵌入
+│   ├── extractor.py      # DeepSeek 仲裁器
+│   ├── adapters.py       # pi/OpenClaw/Hermes 适配
+│   ├── server.py         # HTTP Sidecar + 控制台
+│   └── ...
+├── pi-extension/         # pi Agent 扩展
+├── tests/                # 测试
+├── eval/                 # 评测用例
+└── docs/                 # 文档
 ```
-
----
-
-## 谁在用
-
-- **[pi coding agent](https://github.com/earendil-works/pi-coding-agent)** — 通过 `pi-extension/csm-memory.ts` 自动集成
 
 ---
 
 ## 许可
 
-MIT © CSM Agent Project
+MIT
