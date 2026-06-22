@@ -7,6 +7,19 @@ import os
 
 doc = Document()
 
+# ── 全局默认字体（XML 级，确保所有未显式设置的文字统一）──
+from docx.oxml import OxmlElement
+style_element = doc.styles['Normal'].element
+rPr = style_element.get_or_add_rPr()
+rFonts = OxmlElement('w:rFonts')
+rFonts.set(qn('w:ascii'), 'Times New Roman')
+rFonts.set(qn('w:hAnsi'), 'Times New Roman')
+rFonts.set(qn('w:eastAsia'), '宋体')
+rPr.insert(0, rFonts)
+sz = OxmlElement('w:sz')
+sz.set(qn('w:val'), '24')  # 24 half-points = 12pt
+rPr.insert(0, sz)
+
 # ── A4 纸张 ──────────────────────────────────────────────
 section = doc.sections[0]
 section.page_width = Cm(21.0)
@@ -420,7 +433,28 @@ for ref in refs:
         run.font.name = 'Times New Roman'
         run.font.size = Pt(11)
 
+# ── 全局后处理：确保所有 run 都有显式字号，消除模板默认值干扰 ──
+def _fix_all_fonts(document):
+    """遍历所有段落的 run，补充默认字体和字号。"""
+    from docx.oxml import OxmlElement
+    for p in document.paragraphs:
+        for r in p.runs:
+            if r.font.size is None:
+                r.font.size = Pt(12)
+            if r.font.name is None:
+                r.font.name = 'Times New Roman'
+            elem = r._element
+            rPr = elem.get_or_add_rPr()
+            rFonts = rPr.find(qn('w:rFonts'))
+            if rFonts is None:
+                rFonts = OxmlElement('w:rFonts')
+                rFonts.set(qn('w:eastAsia'), '宋体')
+                rPr.insert(0, rFonts)
+            elif rFonts.get(qn('w:eastAsia')) is None:
+                rFonts.set(qn('w:eastAsia'), '宋体')
+
 # ── 保存 ──────────────────────────────────────────────────
-output = os.path.expanduser('~/Desktop/MemBrain_论文.docx')
+_fix_all_fonts(doc)
+output = os.path.expanduser('~/Desktop/MemBrain_v2.docx')
 doc.save(output)
 print(f'已生成: {output}')
