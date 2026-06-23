@@ -1,4 +1,4 @@
-# 🧠 类脑记忆 — LLM Agent 记忆引擎
+#  类脑记忆 — LLM Agent 记忆引擎
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-blue" alt="Python">
@@ -13,7 +13,7 @@
 
 ```bash
 # 1. 克隆项目
-#    ⚠️ 不要执行 pip install brainmemory！PyPI 上可能有同名但完全不同的包。
+#     不要执行 pip install brainmemory！PyPI 上可能有同名但完全不同的包。
 git clone https://github.com/w3743/BrainMemory.git
 cd BrainMemory
 pip install -e .
@@ -98,7 +98,7 @@ cd BrainMemory
 pip install -e .
 ```
 
-> ⚠️ **重要**：不要从 PyPI 安装同名包，请始终从 GitHub 源码安装。
+>  **重要**：不要从 PyPI 安装同名包，请始终从 GitHub 源码安装。
 
 ### 依赖
 
