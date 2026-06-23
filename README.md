@@ -12,8 +12,6 @@
 ## 5 分钟快速开始
 
 ```bash
-# 1. 克隆项目
-#     不要执行 pip install brainmemory！PyPI 上可能有同名但完全不同的包。
 git clone https://github.com/w3743/BrainMemory.git
 cd BrainMemory
 pip install -e .
