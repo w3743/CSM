@@ -2,10 +2,10 @@
 简化强度模型
 
 两个基本力：
-  - 时间衰减：strength *= exp(-DECAY_RATE * elapsed_days)
-  - 访问强化：strength += (1 - strength) * REINFORCEMENT_GAIN
+  - 时间衰减：R(t) = strength * exp(-decay_rate * elapsed_days)
+  - 访问强化：new_strength = R + gain（增量累加，不重置满分）
 
-分层阈值动态计算（百分位）：
+分层阈值（纯百分位，无上限保护）：
   - L1: 前 20%
   - L2: 20% ~ 60%
   - L3: 60% ~ 90%
@@ -23,8 +23,8 @@ from .models import Memory, utc_now
 # 统一衰减率（所有记忆相同，重要性由访问频率涌现）
 DECAY_RATE: float = 0.02  # 每天衰减 2%
 
-# 每次被使用的强化增益
-REINFORCEMENT_GAIN: float = 0.15
+# 每次被使用的强化增益（加到存储强度上，配合 FSRS 间隔效应）
+REINFORCEMENT_GAIN: float = 0.35
 
 # 默认初始强度
 INITIAL_STRENGTH: float = 0.6
@@ -47,34 +47,26 @@ def current_strength(memory: Memory, now: datetime | None = None) -> float:
 
 
 def reinforce(memory: Memory) -> float:
-    """FSRS 风格强化：间隔效应 + 稳定性对数增长。
+    """访问强化：从当前衰减强度 R 向 1.0 移动固定比例。
 
-    核心洞见：复习越晚 (R 越低)，稳定性增益越大。
-    R=1.0（刚用过）→ 增益 ≈ 0（无需重复强化）
-    R=0.5（半忘状态）→ 增益最大
-    R=0.1（几乎遗忘）→ 增益大但需重建（由 evolution.corrected 处理）
-
-    同时更新 memory.decay_rate（稳定性 S 的对数增长），替代无界乘法累积。
+    公式：new = R + REINFORCEMENT_GAIN * (1 - R)
+    每次访问将剩余距离 (1-R) 缩短 GAIN 比例，渐进逼近 1.0。
+    同时减小 decay_rate，使频繁访问的记忆遗忘更慢。
     """
     R = current_strength(memory)
 
-    # 间隔效应因子：(1 - R)^1.4，复习越晚增益越大
-    spacing_factor = (1.0 - R) ** 1.4
+    new_strength = R + REINFORCEMENT_GAIN * (1.0 - R)
+    new_strength = max(0.0, min(1.0, new_strength))
 
-    # 难度因子：trust 高（简单）→ 少涨，trust 低（困难）→ 多涨
-    difficulty = max(0.05, 1.0 - memory.trust)
-
-    gain = min(1.0, REINFORCEMENT_GAIN * spacing_factor * difficulty)
-
-    # Stability 对数增长（有自然上限，不会无限趋近 0）
+    # Stability 对数增长：频繁访问的记忆遗忘更慢
     if memory.decay_rate > 0:
-        old_S = math.log(2) / memory.decay_rate  # 当前半衰期
+        old_S = math.log(2) / memory.decay_rate
     else:
         old_S = 30.0
-    new_S = old_S * (1.0 + gain)
+    new_S = old_S * (1.0 + REINFORCEMENT_GAIN)
     memory.decay_rate = max(0.001, min(0.3, math.log(2) / new_S))
 
-    return 1.0  # 刚强化后 R 重置为最大值
+    return new_strength
 
 
 def compute_layer_thresholds(strengths: list[float]) -> dict[str, float]:
@@ -99,8 +91,6 @@ def compute_layer_thresholds(strengths: list[float]) -> dict[str, float]:
     l1 = percentile(0.20)
     l2 = percentile(0.60)
     l3 = percentile(0.90)
-    # L1 上限保护：即使分布极端，0.85+ 的记忆永远是 L1
-    l1 = min(l1, 0.85)
     # L3 阈值上限保护：新记忆(0.6)至少是 L3
     l3 = min(l3, 0.5)
     return {"L1": l1, "L2": l2, "L3": l3}
