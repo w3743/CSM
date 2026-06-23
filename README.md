@@ -9,12 +9,11 @@
 
 ---
 
-## 5 分钟快速开始
+## 1 分钟快速开始
 
 ```bash
-git clone https://github.com/w3743/BrainMemory.git
-cd BrainMemory
-pip install -e .
+# 1. 一行安装
+pip install git+https://github.com/w3743/BrainMemory.git
 
 # 2. 启动（首次运行自动下载 BGE 模型，约 1.3GB）
 brainmemory serve
@@ -88,7 +87,13 @@ score = 语义相似度 × 当前强度 R × (1 + boost)
 
 ## 安装
 
-### 从源码安装
+```bash
+pip install git+https://github.com/w3743/BrainMemory.git
+```
+
+> ⚠️ **重要**：不要从 PyPI 安装同名包（`pip install brainmemory`），请始终从 GitHub 安装。
+
+### 从源码安装（开发用）
 
 ```bash
 git clone https://github.com/w3743/BrainMemory.git
@@ -96,8 +101,7 @@ cd BrainMemory
 pip install -e .
 ```
 
->  **重要**：不要从 PyPI 安装同名包，请始终从 GitHub 源码安装。
-
+> ⚠️ **重要**：不要从 PyPI 安装同名包（`pip install brainmemory`），请始终从 GitHub 安装。
 ### 依赖
 
 - Python 3.10+
@@ -122,8 +126,7 @@ pip install -e .
 
 ```bash
 # 1. 安装类脑记忆
-git clone https://github.com/w3743/BrainMemory.git
-cd BrainMemory && pip install -e .
+pip install git+https://github.com/w3743/BrainMemory.git
 
 # 2. 启动 pi（扩展自动拉起 sidecar）
 pi
@@ -133,6 +136,7 @@ pi 中的命令：
 - `/remember <内容>` — 手动存入记忆
 - `/bm-health` — 查看记忆健康报告
 - `/bm-search <查询>` — 搜索记忆库
+- `/bm-uninstall confirm` — 完全卸载
 
 ---
 
@@ -145,6 +149,7 @@ brainmemory search "查询" --project demo     # 检索记忆
 brainmemory sleep                            # 触发睡眠整理
 brainmemory health                           # 健康报告
 brainmemory demo                             # 运行演示
+brainmemory uninstall --yes                  # 完全卸载（删数据+扩展+停服务）
 brainmemory eval-all                         # 完整评测
 ```
 

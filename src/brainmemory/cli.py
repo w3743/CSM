@@ -79,6 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("health", help="Memory health report")
     sub.add_parser("embedding-info", help="Show embedding backend")
     sub.add_parser("reindex-embeddings", help="Rebuild embeddings")
+    uninstall_p = sub.add_parser("uninstall", help="Completely uninstall BrainMemory")
+    uninstall_p.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+
     sub.add_parser("demo", help="Create and query demo memories")
 
     eval_all = sub.add_parser("eval-all", help="Run full evaluation suite")
@@ -93,6 +96,70 @@ def build_parser() -> argparse.ArgumentParser:
 
 def print_json(data: object) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def run_uninstall(db_path: str) -> None:
+    """完全卸载 BrainMemory：杀 sidecar、删数据库、删扩展。"""
+    import shutil
+    import signal
+    import subprocess
+    import sys
+
+    db = Path(db_path)
+    home = Path.home()
+    ext = home / ".pi" / "agent" / "extensions" / "brainmemory.ts"
+
+    print("=== BrainMemory 卸载 ===\n")
+
+    # 1) 杀 sidecar 进程
+    killed = False
+    try:
+        if sys.platform == "win32":
+            result = subprocess.run(
+                ["taskkill", "/F", "/IM", "python.exe", "/FI", "WINDOWTITLE eq brainmemory*"],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                killed = True
+                print("✅ sidecar 进程已终止")
+            else:
+                print("ℹ️ 未找到 sidecar 进程")
+        else:
+            result = subprocess.run(
+                ["pkill", "-f", "brainmemory.cli serve"],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                killed = True
+                print("✅ sidecar 进程已终止")
+            else:
+                print("ℹ️ 未找到 sidecar 进程")
+    except Exception as e:
+        print(f"⚠️ 杀进程失败: {e}")
+
+    # 2) 删数据库文件（含 WAL/SHM）
+    for suffix in ["", "-wal", "-shm"]:
+        f = Path(str(db) + suffix)
+        if f.exists():
+            f.unlink()
+            print(f"✅ 已删除 {f}")
+    if not any((Path(str(db) + s)).exists() for s in ["", "-wal", "-shm"]):
+        if not db.exists():
+            print("ℹ️ 数据库文件不存在（可能已删除）")
+
+    # 3) 删 pi 扩展文件
+    if ext.exists():
+        ext.unlink()
+        print(f"✅ 已删除扩展 {ext}")
+    else:
+        print(f"ℹ️ 扩展文件不存在 {ext}")
+
+    # 4) 提示
+    print(f"\n📦 手动卸载 Python 包：")
+    print(f"   pip uninstall brainmemory -y")
+    print(f"\n💡 源码目录可自行删除：")
+    print(f"   {Path(__file__).resolve().parent.parent.parent}")
+    print(f"\n=== 卸载完成 ===")
 
 
 def run_demo(db_path: str) -> None:
@@ -134,6 +201,14 @@ def run_demo(db_path: str) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    if args.command == "uninstall":
+        if not args.yes:
+            confirm = input("⚠️ 确认完全卸载 BrainMemory？此操作不可撤销！[y/N] ")
+            if confirm.strip().lower() != "y":
+                print("已取消。")
+                return
+        run_uninstall(args.db)
+        return
     if args.command == "demo":
         run_demo(args.db)
         return
