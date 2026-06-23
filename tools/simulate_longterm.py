@@ -1,11 +1,10 @@
 """
-长期记忆模拟实验
+长期记忆模拟实验 + 可视化图表
 
-模拟一个开发者在 30 天内的记忆演化，验证：
-  - 高频实用记忆 → 稳定 L1
-  - 间隔重要记忆 → FSRS 效应（遗忘后重新唤起，增益更大）
-  - 一次性记忆 → 自然滑向 COLD
-  - 噪音记忆 → 从未检索，归档
+模拟一个开发者在 30 天内的记忆演化，生成：
+  1. 强度曲线图（7 条记忆的 R 随时间变化）
+  2. 分层分布热力图（每天的 L1/L2/L3 分布）
+  3. 每周分层快照堆叠柱状图
 """
 
 from __future__ import annotations
@@ -14,61 +13,50 @@ import math
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import numpy as np
 
 from membrain.engine import CSMEngine
 from membrain.strength import (
     compute_layer_thresholds,
     current_strength,
-    DECAY_RATE,
-    INITIAL_STRENGTH,
 )
 
 # ── 场景定义 ────────────────────────────────────────────────────
-
-# 每条记忆：(id, 类型, 内容, 检索日列表)
 SCENARIOS = [
-    ("tech_stack", "高频实用",
-     "项目依赖管理使用 bun install，测试框架用 pytest。",
-     # 几乎每天都被问到
-     [1,2,3,4,5,6,7, 9,10,12,14, 17,18,19,20,21, 24,25,26,27,28,29]),
-
-    ("code_review", "间隔重要",
-     "所有代码变更前必须审查，不可直接修改而不检查。",
-     # 只在代码审查日被查询（间隔越来越长）
-     [1, 3, 7, 15, 26]),
-
-    ("user_pref", "个人信息",
-     "回答使用简体中文，简洁直接，先给结论再给步骤。",
-     # 偶尔被引用
-     [1, 2, 8, 14, 22, 28]),
-
-    ("temp_task", "一次性",
-     "今天临时用 test@example.com 做登录测试，不应作为长期默认邮箱。",
-     # 提过一次就不再问
+    ("tech_stack", "High-frequency", "#1a9641",
+     "bun install + pytest tech stack",
+     [1,2,3,4,5,6,7,9,10,12,14,17,18,19,20,21,24,25,26,27,28,29]),
+    ("user_pref", "Personal pref", "#377eb8",
+     "Simplified Chinese, conclusion-first answers",
+     [1,2,8,14,22,28]),
+    ("code_review", "Spaced (review)", "#ff7f00",
+     "Code review required before changes",
+     [1,3,7,15,26]),
+    ("env_setup", "Moderate use", "#4daf4a",
+     "Python py -3.11, .env.local config",
+     [1,5,11,23]),
+    ("bug_note", "Low-frequency", "#984ea3",
+     "SQLite WAL busy_timeout=5000",
+     [3,19]),
+    ("temp_task", "One-time use", "#a65628",
+     "Temp login test@example.com",
      [1]),
-
-    ("noise", "噪音",
-     "周五下午的站会改到了会议室 B。",
-     # 从未被检索
+    ("noise", "Never used", "#999999",
+     "Friday standup moved to Room B",
      []),
-
-    ("bug_note", "低频技术",
-     "SQLite WAL 模式下并发写入需要设置 busy_timeout=5000。",
-     # 偶尔想起来查一下
-     [3, 19]),
-
-    ("env_setup", "中度实用",
-     "本地 Python 默认用 py -3.11，环境变量在 .env.local 里。",
-     # 新环境时查询
-     [1, 5, 11, 23]),
 ]
 
 
-def simulate() -> None:
-    db_path = Path(__file__).resolve().parent / "sim_output.db"
+def simulate_and_plot(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    db_path = output_dir / "sim_output.db"
     if db_path.exists():
         db_path.unlink()
 
@@ -77,110 +65,185 @@ def simulate() -> None:
 
     # ── Day 0: 创建所有记忆 ─────────────────────────────────
     now = datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)
-    print("Day 0  ─ 创建 7 条记忆（初始强度 0.6）")
-
-    for mem_id, mem_type, content, _ in SCENARIOS:
+    for mem_id, mem_type, color, content, _ in SCENARIOS:
         m = engine.add_memory(content, project_id="sim", tags=f"type:{mem_type}")
         memory_ids[mem_id] = m.id or 0
-        # 将创建时间设为模拟时间的 Day 0
         iso = now.isoformat()
         engine.store.conn.execute(
             "UPDATE memories SET created_at=?, updated_at=?, last_accessed_at=? WHERE id=?",
-            (iso, iso, iso, m.id)
+            (iso, iso, iso, m.id),
         )
         engine.store.conn.commit()
-        print(f"  + {mem_id} [{mem_type}]: {content[:50]}...")
 
-    # ── Day 1-30: 模拟时间流逝 ─────────────────────────────
-    print(f"\n{'Day':<6} {'L1':>4} {'L2':>4} {'L3':>4} {'COLD':>4}  | 事件")
-    print("-" * 70)
+    # ── Track daily data for charts ─────────────────────────────
+    days_list = list(range(0, 31))
+    strengths_by_mem: dict[str, list[float]] = {m_id: [] for m_id, _, _, _, _ in SCENARIOS}
+    layers_by_day: list[dict[str, int]] = []  # [{L1: n, L2: n, L3: n, COLD: n}]
 
+    # Day 0 snapshot
+    all_mems = engine.store.list_all()
+    active = [m for m in all_mems if m.status.value == "active"]
+    s0 = [current_strength(m, now=now) for m in active]
+    for mem_id, _, _, _, _ in SCENARIOS:
+        strengths_by_mem[mem_id].append(0.6)  # all start at 0.6
+    layers_by_day.append({"L1": 0, "L2": 0, "L3": 7, "COLD": 0})
+
+    # ── Day 1-30: 模拟 ─────────────────────────────────────────
     for day in range(1, 31):
         now += timedelta(days=1)
 
-        # 当天被检索的记忆
-        accessed_today: list[int] = []
-        for mem_id, mem_type, content, access_days in SCENARIOS:
+        for mem_id, mem_type, color, content, access_days in SCENARIOS:
             if day in access_days:
                 mid = memory_ids[mem_id]
-                # 模拟检索：search + reinforce
                 results = engine.search(content[:30], project_id="sim", limit=5)
                 for r in results:
                     if r.memory.id == mid:
                         engine.reinforce_used(mid)
-                        # 修正时间戳为模拟时间
                         iso = now.isoformat()
                         engine.store.conn.execute(
-                            "UPDATE memories SET last_accessed_at=? WHERE id=?",
-                            (iso, mid)
+                            "UPDATE memories SET last_accessed_at=? WHERE id=?", (iso, mid)
                         )
                         engine.store.conn.commit()
-                        accessed_today.append(mid)
                         break
 
-        # 每天衰减（pass of time）
-        # 这里我们需要手动计算，因为引擎不自动推进时间
-        # 每 7 天计算一次分层快照（不调用 sleep，避免真实时间污染模拟）
-        if day % 7 == 0:
-            event = f"[Snapshot day {day}]"
-        else:
-            event = ""
-
-        # ── 计算当天分层 ─────────────────────────────────
+        # Record daily strengths
         all_mems = engine.store.list_all()
+        for mem_id, _, _, _, _ in SCENARIOS:
+            mid = memory_ids[mem_id]
+            mem = next((m for m in all_mems if m.id == mid), None)
+            if mem:
+                R = current_strength(mem, now=now)
+            else:
+                R = 0.0
+            strengths_by_mem[mem_id].append(R)
+
+        # Record layer distribution
         active = [m for m in all_mems if m.status.value == "active"]
         strengths = [current_strength(m, now=now) for m in active]
         thresholds = compute_layer_thresholds(strengths)
-
-        layers = {"L1": 0, "L2": 0, "L3": 0, "COLD": 0}
+        lc = {"L1": 0, "L2": 0, "L3": 0, "COLD": 0}
         for s in strengths:
-            if s >= thresholds["L1"]:
-                layers["L1"] += 1
-            elif s >= thresholds["L2"]:
-                layers["L2"] += 1
-            elif s >= thresholds["L3"]:
-                layers["L3"] += 1
-            else:
-                layers["COLD"] += 1
-
-        # 当天事件简述
-        if accessed_today:
-            event = f"查询了 {len(accessed_today)} 条记忆" + (f" {event}" if event else "")
-        elif event:
-            pass
-        else:
-            event = "无访问"
-
-        print(f"Day {day:<3} {layers['L1']:>4} {layers['L2']:>4} {layers['L3']:>4} {layers['COLD']:>4}  | {event}")
-
-    # ── 最终报告 ──────────────────────────────────────────
-    print("\n" + "=" * 70)
-    print("最终状态（Day 30）")
-    print("=" * 70)
-
-    all_mems = engine.store.list_all()
-    for mem_id, mem_type, content, access_days in SCENARIOS:
-        mid = memory_ids[mem_id]
-        mem = next((m for m in all_mems if m.id == mid), None)
-        if mem is None:
-            print(f"  {mem_id} [{mem_type}]: 已归档")
-            continue
-        R = current_strength(mem, now=now)
-        if R >= thresholds["L1"]:
-            layer = "L1"
-        elif R >= thresholds["L2"]:
-            layer = "L2"
-        elif R >= thresholds["L3"]:
-            layer = "L3"
-        else:
-            layer = "COLD"
-        print(f"  {mem_id} [{mem_type}]: R={R:.3f} {layer} "
-              f"access_count={mem.access_count} decay={mem.decay_rate:.4f} "
-              f"boost={mem.boost:.2f} trust={mem.trust:.2f}")
+            if s >= thresholds["L1"]: lc["L1"] += 1
+            elif s >= thresholds["L2"]: lc["L2"] += 1
+            elif s >= thresholds["L3"]: lc["L3"] += 1
+            else: lc["COLD"] += 1
+        layers_by_day.append(lc)
 
     engine.close()
-    db_path.unlink()  # 清理临时数据库
+    db_path.unlink()
+
+    # ════════════════════════════════════════════════════════════
+    # Chart 1: Strength curves
+    # ════════════════════════════════════════════════════════════
+    fig, ax = plt.subplots(figsize=(12, 5))
+    for mem_id, mem_type, color, _, _ in SCENARIOS:
+        ax.plot(days_list, strengths_by_mem[mem_id],
+                color=color, linewidth=2, label=f"{mem_type} ({mem_id})", alpha=0.9)
+
+    # Layer background bands
+    ax.axhspan(0.85, 1.0, alpha=0.06, color="#1a9641")
+    ax.axhspan(0.5, 0.85, alpha=0.04, color="#ff7f00")
+    ax.axhspan(0.0, 0.5, alpha=0.04, color="#999999")
+    ax.text(29.3, 0.92, "L1", fontsize=10, color="#1a9641", ha="right")
+    ax.text(29.3, 0.68, "L2", fontsize=10, color="#ff7f00", ha="right")
+    ax.text(29.3, 0.25, "L3", fontsize=10, color="#999999", ha="right")
+
+    ax.set_xlabel("Day", fontsize=12)
+    ax.set_ylabel("Memory Strength R", fontsize=12)
+    ax.set_title("30-Day Memory Strength Evolution", fontsize=14, fontweight="bold")
+    ax.set_xlim(0, 30)
+    ax.set_ylim(0, 1.05)
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.xaxis.set_major_locator(mticker.MultipleLocator(5))
+    fig.tight_layout()
+    fig.savefig(output_dir / "strength_curves.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    # ════════════════════════════════════════════════════════════
+    # Chart 2: Strength heatmap (memory × day)
+    # ════════════════════════════════════════════════════════════
+    mem_labels = [f"{m_id}\n({m_type})" for m_id, m_type, _, _, _ in SCENARIOS]
+    heatmap_data = np.array([strengths_by_mem[m_id] for m_id, _, _, _, _ in SCENARIOS])
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    im = ax.imshow(heatmap_data, aspect="auto", cmap="RdYlGn", vmin=0.0, vmax=1.0,
+                   extent=[0, 30, len(mem_labels) - 0.5, -0.5])
+
+    ax.set_yticks(range(len(mem_labels)))
+    ax.set_yticklabels(mem_labels, fontsize=9)
+    ax.set_xlabel("Day", fontsize=12)
+    ax.set_title("Memory Strength Heatmap (Red = Low, Green = High)", fontsize=13, fontweight="bold")
+
+    # Annotate cells with values at key days (0, 7, 14, 21, 30)
+    for i in range(len(mem_labels)):
+        for day in [0, 7, 14, 21, 30]:
+            val = heatmap_data[i, day]
+            color = "white" if val < 0.5 else "black"
+            ax.text(day, i, f"{val:.2f}", ha="center", va="center",
+                    fontsize=6.5, color=color, fontweight="bold")
+
+    cbar = fig.colorbar(im, ax=ax, shrink=0.85)
+    cbar.set_label("Strength R", fontsize=11)
+    ax.xaxis.set_major_locator(mticker.MultipleLocator(5))
+    fig.tight_layout()
+    fig.savefig(output_dir / "strength_heatmap.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    # ════════════════════════════════════════════════════════════
+    # Chart 3: Layer distribution stacked bar (weekly snapshots)
+    # ════════════════════════════════════════════════════════════
+    weeks = ["Day 0", "Day 7", "Day 14", "Day 21", "Day 28", "Day 30"]
+    week_indices = [0, 7, 14, 21, 28, 30]
+
+    l1_vals = [layers_by_day[i]["L1"] for i in week_indices]
+    l2_vals = [layers_by_day[i]["L2"] for i in week_indices]
+    l3_vals = [layers_by_day[i]["L3"] for i in week_indices]
+    cold_vals = [layers_by_day[i]["COLD"] for i in week_indices]
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    x = np.arange(len(weeks))
+    w = 0.55
+
+    ax.bar(x, l1_vals, w, label="L1 (Top 20%)", color="#1a9641", edgecolor="white", linewidth=0.5)
+    ax.bar(x, l2_vals, w, bottom=l1_vals, label="L2 (20-60%)", color="#ff7f00", edgecolor="white", linewidth=0.5)
+    ax.bar(x, l3_vals, w, bottom=np.array(l1_vals) + np.array(l2_vals),
+           label="L3 (60-90%)", color="#999999", edgecolor="white", linewidth=0.5)
+    cold_bottom = np.array(l1_vals) + np.array(l2_vals) + np.array(l3_vals)
+    ax.bar(x, cold_vals, w, bottom=cold_bottom,
+           label="COLD", color="#d7191c", edgecolor="white", linewidth=0.5)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(weeks, fontsize=10)
+    ax.set_ylabel("Memory Count", fontsize=12)
+    ax.set_title("Layer Distribution at Weekly Snapshots", fontsize=13, fontweight="bold")
+    ax.legend(loc="upper right", fontsize=9)
+    ax.set_ylim(0, 8)
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(1))
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output_dir / "layer_distribution.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    # ── Print summary ─────────────────────────────────────────
+    print("Charts saved to:", output_dir)
+    print("\n  strength_curves.png      — 7 curves over 30 days")
+    print("  strength_heatmap.png     — color-coded strength grid")
+    print("  layer_distribution.png   — weekly stacked bar chart")
+
+    print("\nFinal state (Day 30):")
+    for mem_id, mem_type, _, _, access_days in SCENARIOS:
+        R = strengths_by_mem[mem_id][-1]
+        access_count = len(access_days)
+        if R >= 0.85:
+            layer = "L1"
+        elif R >= 0.5:
+            layer = "L2"
+        else:
+            layer = "L3"
+        print(f"  {mem_id:15s} [{mem_type:16s}]  R={R:.3f}  {layer}  accesses={access_count}")
 
 
 if __name__ == "__main__":
-    simulate()
+    out = Path(__file__).resolve().parent / "sim_charts"
+    simulate_and_plot(out)
