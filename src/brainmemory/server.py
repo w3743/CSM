@@ -11,9 +11,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
-from .adapters import AgentScope, CSMMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, filter_scoped_results
+from .adapters import AgentScope, BrainMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, filter_scoped_results
 from .api_contract import openapi_spec
-from .engine import CSMEngine
+from .engine import BrainMemoryEngine
 from .embedding import embedding_config_from_env
 from .extractor import DeepSeekMemoryExtractor, LLMExtractorNotConfigured, build_default_extractor
 from .llm_config import public_llm_config, save_llm_config
@@ -26,10 +26,10 @@ def create_handler(db_path: str | Path, api_key: str | None = None):
     """返回 (handler_class, cleanup_callable)。"""
     db = str(db_path)
     configured_api_key = api_key
-    shared_engine = CSMEngine(db)
+    shared_engine = BrainMemoryEngine(db)
 
-    class CSMRequestHandler(BaseHTTPRequestHandler):
-        server_version = "MemBrain/1.0"
+    class BrainMemoryRequestHandler(BaseHTTPRequestHandler):
+        server_version = "BrainMemory/1.0"
 
         def do_GET(self) -> None:
             if self.path == "/" or self.path == "/admin":
@@ -39,7 +39,7 @@ def create_handler(db_path: str | Path, api_key: str | None = None):
                 self._send_html(admin_console_html(api_key=configured_api_key))
                 return
             if self.path == "/health":
-                self._send_json({"ok": True, "service": "mb-memory-sidecar"})
+                self._send_json({"ok": True, "service": "brainmemory-sidecar"})
                 return
             if self.path == "/admin/health":
                 if not self._authorized():
@@ -75,7 +75,7 @@ def create_handler(db_path: str | Path, api_key: str | None = None):
             return
 
         def _dispatch_post(self, payload: dict[str, Any]) -> dict[str, Any]:
-            adapter = CSMMemoryAdapter(shared_engine)
+            adapter = BrainMemoryAdapter(shared_engine)
             sidecar = OpenClawMemorySidecar(adapter)
             provider = HermesMemoryProvider(adapter)
             if self.path == "/pre_prompt":
@@ -102,7 +102,7 @@ def create_handler(db_path: str | Path, api_key: str | None = None):
                 return self._dispatch_admin(shared_engine, adapter, payload)
             raise ValueError(f"unknown endpoint: {self.path}")
 
-        def _dispatch_admin(self, engine: CSMEngine, adapter: CSMMemoryAdapter, payload: dict[str, Any]) -> dict[str, Any]:
+        def _dispatch_admin(self, engine: BrainMemoryEngine, adapter: BrainMemoryAdapter, payload: dict[str, Any]) -> dict[str, Any]:
             if self.path == "/admin/memories":
                 return {"items": [_memory_payload(m) for m in engine.store.list_all()]}
             if self.path == "/admin/llm/config":
@@ -231,13 +231,13 @@ def create_handler(db_path: str | Path, api_key: str | None = None):
         def _authorized(self) -> bool:
             if not configured_api_key:
                 return True
-            provided = self.headers.get("X-CSM-API-Key", "")
+            provided = self.headers.get("X-BrainMemory-API-Key", "")
             authorization = self.headers.get("Authorization", "")
             if authorization.startswith("Bearer "):
                 provided = authorization.removeprefix("Bearer ").strip()
             return secrets.compare_digest(provided, configured_api_key)
 
-    return CSMRequestHandler, lambda: shared_engine.close()
+    return BrainMemoryRequestHandler, lambda: shared_engine.close()
 
 
 # ── 序列化辅助 ──────────────────────────────────────────────
@@ -384,7 +384,7 @@ def admin_console_html(api_key: str | None = None) -> str:
 <body>
   <div class="shell">
     <aside>
-      <div class="brand">MemBrain</div>
+      <div class="brand">类脑记忆</div>
       <div class="nav">
         <button data-view="dashboard" class="active">总览</button>
         <button data-view="memories">记忆库</button>
@@ -497,13 +497,13 @@ def admin_console_html(api_key: str | None = None) -> str:
     </main>
   </div>
 <script>
-const CSM_API_KEY = """ + key_js + r""";
+const BRAINMEMORY_API_KEY = """ + key_js + r""";
 const state={memories:[],health:{}};
 const titles={dashboard:"总览",memories:"记忆库",llm:"LLM 接入",retrieval:"检索实验",arbitration:"仲裁实验"};
 const statusLabels={active:"活跃",archived:"已归档",superseded:"已替代"};
 async function api(path,payload=null){
   const headers=payload===null?{}:{"Content-Type":"application/json"};
-  if(CSM_API_KEY)headers["X-CSM-API-Key"]=CSM_API_KEY;
+  if(BRAINMEMORY_API_KEY)headers["X-BrainMemory-API-Key"]=BRAINMEMORY_API_KEY;
   const opts=payload===null?{headers}:{method:"POST",headers,body:JSON.stringify(payload)};
   const res=await fetch(path,opts);const data=await res.json();
   if(!res.ok)throw new Error(data.message||data.error||"request failed");return data;
@@ -630,9 +630,8 @@ refreshAll().catch(e=>alert(e.message));
 
 
 def run_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8765, api_key: str | None = None) -> None:
-    """Start the MemBrain HTTP sidecar with a visual startup animation."""
+    """Start the 类脑记忆 HTTP sidecar with a visual startup animation."""
     import sys
-    import threading
 
     # ── Suppress noisy third-party output during startup ────────────
     import logging
@@ -642,41 +641,24 @@ def run_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8765, a
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
-    # ── Animated spinner ────────────────────────────────────────────
-    frames = ["━", "\\", "┃", "/"]
-    stop = threading.Event()
-
-    def _spin() -> None:
-        i = 0
-        while not stop.is_set():
-            sys.stdout.write(f"\r  {frames[i % 4]} Loading model...")
-            sys.stdout.flush()
-            stop.wait(0.15)
-            i += 1
-
-    spinner = threading.Thread(target=_spin, daemon=True)
+    # ── Startup messages use stdout for coordination with parent process ──
     handler_cls = None
     cleanup_fn = None
     server = None
 
     try:
-        sys.stdout.write("\r  ━ Loading model...")
-        sys.stdout.flush()
-        spinner.start()
+        sys.stderr.write("类脑记忆 loading model...")
+        sys.stderr.flush()
 
         handler_cls, cleanup_fn = create_handler(db_path, api_key=api_key)
-        stop.set()
-        spinner.join(timeout=0.5)
 
         server = HTTPServer((host, port), handler_cls)
-        sys.stdout.write(f"\r  ✔ MemBrain ready  →  http://{host}:{port}/admin\n")
-        sys.stdout.flush()
+        sys.stderr.write(f"\r类脑记忆 ready -> http://{host}:{port}/admin\n")
+        sys.stderr.flush()
         server.serve_forever()
     except Exception:
-        stop.set()
-        spinner.join(timeout=0.5)
-        sys.stdout.write("\r  ✖ Startup failed\n")
-        sys.stdout.flush()
+        sys.stderr.write("\r类脑记忆 startup FAILED\n")
+        sys.stderr.flush()
         raise
     finally:
         if cleanup_fn is not None:

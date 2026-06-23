@@ -168,9 +168,9 @@ class DeepSeekMemoryExtractor:
     @classmethod
     def from_env(cls) -> "DeepSeekMemoryExtractor":
         config = load_llm_config(include_secret=True)
-        api_key = config.api_key or os.environ.get("CSM_DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")
+        api_key = config.api_key or os.environ.get("BRAINMEMORY_DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")
         if not api_key:
-            raise LLMExtractorNotConfigured("Set CSM_DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.")
+            raise LLMExtractorNotConfigured("Set BRAINMEMORY_DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.")
         return cls(
             api_key=api_key,
             model=config.model,

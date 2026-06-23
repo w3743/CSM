@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_LLM_CONFIG_PATH = ".csm_llm_config.json"
+DEFAULT_LLM_CONFIG_PATH = ".brainmemory_llm_config.json"
 
 
 @dataclass(slots=True)
@@ -27,7 +27,7 @@ class LLMConfig:
 
 
 def llm_config_path() -> Path:
-    return Path(os.environ.get("CSM_LLM_CONFIG_PATH", DEFAULT_LLM_CONFIG_PATH))
+    return Path(os.environ.get("BRAINMEMORY_LLM_CONFIG_PATH", DEFAULT_LLM_CONFIG_PATH))
 
 
 def load_llm_config(include_secret: bool = True) -> LLMConfig:
@@ -35,17 +35,17 @@ def load_llm_config(include_secret: bool = True) -> LLMConfig:
     path = llm_config_path()
     if path.exists():
         data = json.loads(path.read_text(encoding="utf-8"))
-    api_key = str(data.get("api_key") or os.environ.get("CSM_DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "")
+    api_key = str(data.get("api_key") or os.environ.get("BRAINMEMORY_DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "")
     if not include_secret:
         api_key = _mask_secret(api_key)
     return LLMConfig(
         provider=str(data.get("provider") or "deepseek"),
         api_key=api_key,
-        model=str(data.get("model") or os.environ.get("CSM_DEEPSEEK_MODEL") or "deepseek-v4-flash"),
-        base_url=str(data.get("base_url") or os.environ.get("CSM_DEEPSEEK_BASE_URL") or "https://api.deepseek.com"),
+        model=str(data.get("model") or os.environ.get("BRAINMEMORY_DEEPSEEK_MODEL") or "deepseek-v4-flash"),
+        base_url=str(data.get("base_url") or os.environ.get("BRAINMEMORY_DEEPSEEK_BASE_URL") or "https://api.deepseek.com"),
         temperature=float(data.get("temperature", 0.0)),
-        max_output_tokens=int(data.get("max_output_tokens") or os.environ.get("CSM_LLM_MAX_OUTPUT_TOKENS") or 800),
-        max_input_chars=int(data.get("max_input_chars") or os.environ.get("CSM_LLM_MAX_INPUT_CHARS") or 6000),
+        max_output_tokens=int(data.get("max_output_tokens") or os.environ.get("BRAINMEMORY_LLM_MAX_OUTPUT_TOKENS") or 800),
+        max_input_chars=int(data.get("max_input_chars") or os.environ.get("BRAINMEMORY_LLM_MAX_INPUT_CHARS") or 6000),
         thinking=str(data.get("thinking") or "disabled"),
     )
 

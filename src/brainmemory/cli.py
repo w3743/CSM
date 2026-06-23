@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 
-from .engine import CSMEngine
+from .engine import BrainMemoryEngine
 from .embedding import embedding_config_from_env
 from .evaluation import (
     evaluate_end_to_end_fixture, evaluate_retrieval_fixture, evaluate_mock_llm_fixture,
@@ -23,8 +23,8 @@ from .strength import current_strength
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Continuous Strength Memory")
-    parser.add_argument("--db", default=os.environ.get("CSM_DB", "membrain_memory.db"), help="SQLite database path")
+    parser = argparse.ArgumentParser(description="类脑记忆 — continuous strength memory")
+    parser.add_argument("--db", default=os.environ.get("BRAINMEMORY_DB", "brainmemory.db"), help="SQLite database path")
     sub = parser.add_subparsers(dest="command", required=True)
 
     add_p = sub.add_parser("add", help="Add a memory")
@@ -64,9 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     eval_e2e.add_argument("--work-dir", default=".csm_eval")
 
     serve_p = sub.add_parser("serve", help="Run HTTP sidecar")
-    serve_p.add_argument("--host", default=os.environ.get("CSM_HOST", "127.0.0.1"))
-    serve_p.add_argument("--port", type=int, default=int(os.environ.get("CSM_PORT", "8765")))
-    serve_p.add_argument("--api-key", default=os.environ.get("CSM_API_KEY"))
+    serve_p.add_argument("--host", default=os.environ.get("BRAINMEMORY_HOST", "127.0.0.1"))
+    serve_p.add_argument("--port", type=int, default=int(os.environ.get("BRAINMEMORY_PORT", "8765")))
+    serve_p.add_argument("--api-key", default=os.environ.get("BRAINMEMORY_API_KEY"))
 
     ds_p = sub.add_parser("deepseek-check", help="Validate DeepSeek request locally")
     ds_p.add_argument("text")
@@ -99,7 +99,7 @@ def run_demo(db_path: str) -> None:
     path = Path(db_path)
     if path.exists():
         path.unlink()
-    engine = CSMEngine(path)
+    engine = BrainMemoryEngine(path)
     try:
         style = engine.add_memory(
             "用户长期偏好：解释技术概念时使用简洁、直接的中文回答。",
@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None) -> None:
         print_json(embedding_config_from_env())
         return
 
-    engine = CSMEngine(args.db)
+    engine = BrainMemoryEngine(args.db)
     try:
         if args.command == "add":
             memory = engine.add_memory(args.content, project_id=args.project, summary=args.summary, tags=args.tags)

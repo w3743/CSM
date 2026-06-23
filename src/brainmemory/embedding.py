@@ -45,7 +45,7 @@ class LocalSentenceTransformerEmbeddingBackend:
 
     使用 bge-large-zh-v1.5（1024 维），中文语义理解能力强大。
     首次运行时自动从 HuggingFace 下载模型到本地缓存；
-    也可通过 CSM_EMBEDDING_MODEL 指定已有模型路径实现离线运行。
+    也可通过 BRAINMEMORY_EMBEDDING_MODEL 指定已有模型路径实现离线运行。
     """
 
     name = "local_bge_large_zh"
@@ -69,21 +69,21 @@ class LocalSentenceTransformerEmbeddingBackend:
 def build_embedding_backend_from_env() -> EmbeddingBackend:
     """根据环境构建本地 BGE 嵌入后端。
 
-    CSM_EMBEDDING_BACKEND 仅接受空值、local、sentence-transformers。
+    BRAINMEMORY_EMBEDDING_BACKEND 仅接受空值、local、sentence-transformers。
     项目运行时不再回退 hash；缺少依赖或模型时应直接报错，避免系统悄悄降级。
     """
-    backend_env = os.environ.get("CSM_EMBEDDING_BACKEND", "").strip().lower()
+    backend_env = os.environ.get("BRAINMEMORY_EMBEDDING_BACKEND", "").strip().lower()
 
     if backend_env in {"", "local", "sentence-transformers", "sentence_transformers"}:
-        model = _resolve_local_model_path(os.environ.get("CSM_EMBEDDING_MODEL"))
+        model = _resolve_local_model_path(os.environ.get("BRAINMEMORY_EMBEDDING_MODEL"))
         return LocalSentenceTransformerEmbeddingBackend(str(model))
 
-    raise ValueError(f"unsupported CSM_EMBEDDING_BACKEND: {backend_env}")
+    raise ValueError(f"unsupported embedding backend: {backend_env}")
 
 
 def embedding_config_from_env() -> dict[str, str | int | None]:
-    backend_env = os.environ.get("CSM_EMBEDDING_BACKEND", "").strip().lower() or "local"
-    model = str(_resolve_local_model_path(os.environ.get("CSM_EMBEDDING_MODEL")))
+    backend_env = os.environ.get("BRAINMEMORY_EMBEDDING_BACKEND", "").strip().lower() or "local"
+    model = str(_resolve_local_model_path(os.environ.get("BRAINMEMORY_EMBEDDING_MODEL")))
     return {
         "backend": backend_env,
         "model": model,
@@ -103,7 +103,7 @@ def _detect_available_backends() -> list[str]:
 def _resolve_local_model_path(value: str | None = None) -> Path | str:
     """Resolve the local BGE model path.
 
-    - Explicit CSM_EMBEDDING_MODEL: validate the path exists.
+    - Explicit BRAINMEMORY_EMBEDDING_MODEL: validate the path exists.
     - Default (unset) & dev project model exists: use project local copy.
     - Default (unset) & no local copy (pip install): fall back to HF
       model name "BAAI/bge-large-zh-v1.5" so SentenceTransformer can
@@ -114,15 +114,15 @@ def _resolve_local_model_path(value: str | None = None) -> Path | str:
         if not model_path.exists():
             raise FileNotFoundError(
                 f"Local bge-large-zh-v1.5 model directory not found: {model_path}. "
-                "Download it or set CSM_EMBEDDING_MODEL to a valid path."
+                "Download it or set BRAINMEMORY_EMBEDDING_MODEL to a valid path."
             )
         if not model_path.is_dir():
-            raise NotADirectoryError(f"CSM_EMBEDDING_MODEL must be a local directory: {model_path}")
+            raise NotADirectoryError(f"Embedding model path must be a local directory: {model_path}")
         return model_path
     if PROJECT_LOCAL_MODEL.exists():
         return PROJECT_LOCAL_MODEL
     # pip install: no project models/ directory, use HF hub auto-download
-    print(f"[membrain] Model not found at {PROJECT_LOCAL_MODEL}, "
+    print(f"[brainmemory] Model not found at {PROJECT_LOCAL_MODEL}, "
           f"using {DEFAULT_LOCAL_MODEL_NAME} (will download on first use)", flush=True)
     return Path(DEFAULT_LOCAL_MODEL_NAME)
 

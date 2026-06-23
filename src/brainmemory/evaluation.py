@@ -12,8 +12,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from .adapters import CSMMemoryAdapter, PiAgentMemoryHook
-from .engine import CSMEngine
+from .adapters import BrainMemoryAdapter, PiAgentMemoryHook
+from .engine import BrainMemoryEngine
 from .extractor import JSONMemoryExtractor, MemoryExtractor
 from .models import Memory, MemoryOp, utc_now
 
@@ -243,7 +243,7 @@ def evaluate_mock_llm_fixture(fixture_path: str | Path) -> EvalResult:
 # 2. 检索评测（含 MRR、NDCG）
 # ═══════════════════════════════════════════════════════════════════
 
-def evaluate_retrieval_full(engine: CSMEngine, cases: list[RetrievalCase]) -> RetrievalEvalResult:
+def evaluate_retrieval_full(engine: BrainMemoryEngine, cases: list[RetrievalCase]) -> RetrievalEvalResult:
     failures = []
     recall_hits = 0
     precision_sum = 0.0
@@ -316,7 +316,7 @@ def evaluate_retrieval_full(engine: CSMEngine, cases: list[RetrievalCase]) -> Re
     )
 
 
-def seed_retrieval_fixture(engine: CSMEngine) -> None:
+def seed_retrieval_fixture(engine: BrainMemoryEngine) -> None:
     """种子数据：构建一个包含多种类型记忆的数据库。"""
     # 项目依赖 + supersede 链
     old = engine.add_memory("项目依赖管理使用 pnpm install。", project_id="demo", tags="依赖,pnpm")
@@ -342,7 +342,7 @@ def seed_retrieval_fixture(engine: CSMEngine) -> None:
 
 
 def evaluate_retrieval_fixture(db_path: str | Path, fixture_path: str | Path) -> RetrievalEvalResult:
-    engine = CSMEngine(db_path)
+    engine = BrainMemoryEngine(db_path)
     try:
         seed_retrieval_fixture(engine)
         return evaluate_retrieval_full(engine, load_retrieval_cases(fixture_path))
@@ -360,7 +360,7 @@ def evaluate_end_to_end_case(case: EndToEndCase, db_path: str | Path) -> tuple[b
         candidate = Path(f"{db_path}{suffix}")
         if candidate.exists():
             candidate.unlink()
-    engine = CSMEngine(db_path)
+    engine = BrainMemoryEngine(db_path)
     try:
         def generator(payload: dict[str, Any]) -> dict[str, Any]:
             text = str(payload["user_input"])
@@ -378,7 +378,7 @@ def evaluate_end_to_end_case(case: EndToEndCase, db_path: str | Path) -> tuple[b
                 write["tags"] = "部署,流程"
             return {"rationale": "mock e2e", "writes": [write]}
 
-        adapter = CSMMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
+        adapter = BrainMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
         hook = PiAgentMemoryHook(adapter)
         state: dict[str, Any] = {"user_id": "eval-user", "project_id": case.project_id}
 
@@ -387,7 +387,7 @@ def evaluate_end_to_end_case(case: EndToEndCase, db_path: str | Path) -> tuple[b
             state = hook.agent_end(item, "已处理。", state)
 
         state = hook.before_agent_start(case.query, state)
-        context = str(state.get("membrain_memory_context", ""))
+        context = str(state.get("brainmemory_memory_context", ""))
         passed = case.expected_contains in context
         if case.forbidden_contains and case.forbidden_contains in context:
             passed = False
@@ -513,7 +513,7 @@ class EmbeddingQualityResult:
     details: dict[str, Any] = field(default_factory=dict)
 
 
-def evaluate_embedding_quality(engine: CSMEngine) -> EmbeddingQualityResult:
+def evaluate_embedding_quality(engine: BrainMemoryEngine) -> EmbeddingQualityResult:
     """评估嵌入模型的质量。
 
     测试三组语义关系：
@@ -652,7 +652,7 @@ def run_full_evaluation(db_path: str | Path, work_dir: str | Path) -> dict[str, 
     }
 
     # 5. 嵌入质量评测
-    engine = CSMEngine(db_path)
+    engine = BrainMemoryEngine(db_path)
     try:
         emb_result = evaluate_embedding_quality(engine)
         report["embedding"] = {

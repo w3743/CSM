@@ -26,8 +26,8 @@ from .strength import (
 )
 
 
-class CSMEngine:
-    def __init__(self, db_path: str | Path = "membrain_memory.db", embedding: EmbeddingBackend | None = None) -> None:
+class BrainMemoryEngine:
+    def __init__(self, db_path: str | Path = "brainmemory.db", embedding: EmbeddingBackend | None = None) -> None:
         self.store = MemoryStore(db_path, embedding=embedding)
         self.retriever = HybridRetriever(self.store)
         self.evolution = EvolutionEngine(self.store)

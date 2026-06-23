@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from .engine import CSMEngine
+from .engine import BrainMemoryEngine
 from .evolution import detect_feedback
 from .extractor import MemoryExtractor, build_default_extractor
 from .embedding import tokenize
@@ -61,12 +61,12 @@ class AgentEvent:
     scope: AgentScope = field(default_factory=AgentScope)
 
 
-class CSMMemoryAdapter:
+class BrainMemoryAdapter:
     """框架无关的 sidecar API。"""
 
     def __init__(
         self,
-        engine: CSMEngine,
+        engine: BrainMemoryEngine,
         default_budget_chars: int = 1400,
         extractor: MemoryExtractor | None = None,
     ) -> None:
@@ -191,15 +191,15 @@ class CSMMemoryAdapter:
 
 
 class PiAgentMemoryHook:
-    def __init__(self, adapter: CSMMemoryAdapter) -> None:
+    def __init__(self, adapter: BrainMemoryAdapter) -> None:
         self.adapter = adapter
 
     def before_agent_start(self, user_input: str, state: dict[str, Any]) -> dict[str, Any]:
         scope = _scope_from_state(state)
         context = self.adapter.retrieve(user_input, scope)
         state = dict(state)
-        state["membrain_memory_context"] = context.text
-        state["membrain_memory_ids"] = context.memory_ids
+        state["brainmemory_memory_context"] = context.text
+        state["brainmemory_memory_ids"] = context.memory_ids
         state["csm_memory_context"] = context.text
         state["csm_memory_ids"] = context.memory_ids
         return state
@@ -209,8 +209,8 @@ class PiAgentMemoryHook:
         event = AgentEvent(
             user_input=user_input,
             agent_output=agent_output,
-            used_memory_ids=list(state.get("membrain_memory_ids", state.get("csm_memory_ids", []))),
-            explicit_memories=list(state.get("membrain_explicit_memories", state.get("csm_explicit_memories", []))),
+            used_memory_ids=list(state.get("brainmemory_memory_ids", state.get("csm_memory_ids", []))),
+            explicit_memories=list(state.get("brainmemory_explicit_memories", state.get("csm_explicit_memories", []))),
             scope=scope,
         )
         plan = self.adapter.observe(event)
@@ -218,15 +218,15 @@ class PiAgentMemoryHook:
         state = dict(state)
         write_plan = [w.op.value for w in plan.writes]
         committed_ids = [m.id for m in committed]
-        state["membrain_write_plan"] = write_plan
-        state["membrain_committed_ids"] = committed_ids
+        state["brainmemory_write_plan"] = write_plan
+        state["brainmemory_committed_ids"] = committed_ids
         state["csm_write_plan"] = write_plan
         state["csm_committed_ids"] = committed_ids
         return state
 
 
 class OpenClawMemorySidecar:
-    def __init__(self, adapter: CSMMemoryAdapter) -> None:
+    def __init__(self, adapter: BrainMemoryAdapter) -> None:
         self.adapter = adapter
 
     def handle_pre_prompt(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -251,7 +251,7 @@ class OpenClawMemorySidecar:
 
 
 class HermesMemoryProvider:
-    def __init__(self, adapter: CSMMemoryAdapter) -> None:
+    def __init__(self, adapter: BrainMemoryAdapter) -> None:
         self.adapter = adapter
 
     def get_context(self, prompt: str, user_id: str = "default", project_id: str | None = None) -> str:
