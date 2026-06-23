@@ -91,8 +91,6 @@ score = 语义相似度 × 当前强度 R × (1 + boost)
 pip install git+https://github.com/w3743/BrainMemory.git
 ```
 
-> ⚠️ **重要**：不要从 PyPI 安装同名包（`pip install brainmemory`），请始终从 GitHub 安装。
-
 ### 从源码安装（开发用）
 
 ```bash
@@ -101,7 +99,6 @@ cd BrainMemory
 pip install -e .
 ```
 
-> ⚠️ **重要**：不要从 PyPI 安装同名包（`pip install brainmemory`），请始终从 GitHub 安装。
 ### 依赖
 
 - Python 3.10+
