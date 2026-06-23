@@ -98,6 +98,73 @@ def print_json(data: object) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def _pip_uninstall_brainmemory() -> None:
+    """卸载 brainmemory Python 包，兼容 pip 安装和 editable 安装。"""
+    import shutil
+    import site
+    import subprocess
+    import sys
+    import sysconfig
+
+    # 先尝试常规 pip uninstall
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "uninstall", "brainmemory", "-y"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print("✅ pip uninstall brainmemory 完成")
+        return
+
+    # pip uninstall 失败，手动清理残留（editable 安装等）
+    print("🔧 常规卸载失败，深度清理残留...")
+    cleaned = False
+
+    for sp in site.getsitepackages():
+        sp = Path(sp)
+        if not sp.exists():
+            continue
+
+        # 清理 brainmemory 包目录
+        pkg = sp / "brainmemory"
+        if pkg.is_dir():
+            shutil.rmtree(pkg, ignore_errors=True)
+            print(f"  ✅ 已删除 {pkg}")
+            cleaned = True
+
+        # 清理 dist-info / egg-info
+        for pattern in ["brainmemory-*.dist-info", "brainmemory-*.egg-info"]:
+            for d in sp.glob(pattern):
+                shutil.rmtree(d, ignore_errors=True)
+                print(f"  ✅ 已删除 {d}")
+                cleaned = True
+
+        # 清理 editable 安装的 .pth 文件
+        for pth in sp.glob("__editable__.brainmemory-*.pth"):
+            pth.unlink(missing_ok=True)
+            print(f"  ✅ 已删除 {pth}")
+            cleaned = True
+
+        # 清理 .egg-link（旧版 editable）
+        egg = sp / "brainmemory.egg-link"
+        if egg.exists():
+            egg.unlink()
+            print(f"  ✅ 已删除 {egg}")
+            cleaned = True
+
+    # 清理 Scripts 中的 brainmemory.exe
+    scripts = Path(sysconfig.get_path("scripts"))
+    for exe in scripts.glob("brainmemory*"):
+        if exe.is_file():
+            exe.unlink(missing_ok=True)
+            print(f"  ✅ 已删除 {exe}")
+            cleaned = True
+
+    if cleaned:
+        print("✅ 所有残留已清理")
+    else:
+        print("ℹ️ 未找到残留，可能已卸载")
+
+
 def run_uninstall(db_path: str) -> None:
     """完全卸载 BrainMemory：杀 sidecar、删数据库、删扩展。"""
     import subprocess
@@ -152,21 +219,9 @@ def run_uninstall(db_path: str) -> None:
     else:
         print(f"ℹ️ 扩展文件不存在 {ext}")
 
-    # 4) 卸载 Python 包
+    # 4) 卸载 Python 包（处理 pip 安装和 editable 安装）
     print(f"\n📦 卸载 Python 包...")
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "uninstall", "brainmemory", "-y"],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            print("✅ pip uninstall brainmemory 完成")
-        else:
-            print(f"⚠️ pip 卸载失败（可能是 editable 安装），请手动处理：")
-            print(f"   pip uninstall brainmemory -y")
-    except Exception:
-        print(f"⚠️ 无法自动卸载 Python 包，请手动执行：")
-        print(f"   pip uninstall brainmemory -y")
+    _pip_uninstall_brainmemory()
     print(f"\n=== 卸载完成 ===")
 
 
