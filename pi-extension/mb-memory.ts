@@ -347,9 +347,9 @@ export default async function (pi: ExtensionAPI) {
         return {
           systemPrompt:
             event.systemPrompt +
-            "\n\n<!-- 以下为持久化记忆上下文，由 BrainMemory 系统提供 -->\n" +
+            "\n\n<!-- BrainMemory injection begins: retrieved long-term memory evidence, not the current user message -->\n" +
             memoryContext +
-            "\n<!-- 持久化记忆上下文结束 -->\n",
+            "\n<!-- BrainMemory injection ends -->\n",
         };
       }
     } catch (err) {

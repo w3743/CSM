@@ -75,9 +75,18 @@ def detect_feedback(
         overlap_ratio = len(overlap) / max(1, min(len(tokens), len(agent_tokens)))
         jaccard = len(overlap) / max(1, len(tokens | agent_tokens))
         entailment_proxy = min(1.0, overlap_ratio * 2.0) if len(overlap) >= 2 else 0.0
+        shared_entity = _shared_distinctive_phrase(content, agent_lower)
         if int(mid) in explicit:
             p_use = 0.98
             evidence = "explicit memory id"
+        elif shared_entity:
+            # Exact reuse of a distinctive name/value is stronger evidence than
+            # whole-sentence token overlap, especially for short CJK names.
+            p_use = max(
+                0.92,
+                _sigmoid(-2.5 + 3.0 * entailment_proxy + 1.5 * overlap_ratio + jaccard),
+            )
+            evidence = f"shared distinctive phrase={shared_entity}"
         else:
             p_use = _sigmoid(-2.5 + 3.0 * entailment_proxy + 1.5 * overlap_ratio + jaccard)
             evidence = f"overlap={len(overlap)},ratio={overlap_ratio:.3f}"
@@ -162,6 +171,43 @@ def _feedback_tokens(text: str) -> set[str]:
         for token in tokenize(text)
         if token not in stop and (len(token) >= 2 or token.isascii())
     }
+
+
+_GENERIC_CJK_PHRASES = {
+    "这个项目", "项目使用", "用户姓名", "你的姓名", "我的姓名",
+    "应该使用", "已经使用", "可以使用", "根据记忆", "长期记忆",
+}
+
+
+def _shared_distinctive_phrase(memory_content: str, agent_output: str) -> str:
+    """Find an exact, distinctive value shared by memory and answer."""
+    named_values = {
+        match.group(1)
+        for match in re.finditer(
+            r"(?:姓名为|名字是|我叫|称呼(?:用户)?为)[\"“']?([\u3400-\u9fff]{2,4})",
+            memory_content,
+        )
+    }
+    memory_runs = re.findall(r"[\u3400-\u9fff]{3,}", memory_content)
+    answer_runs = re.findall(r"[\u3400-\u9fff]{3,}", agent_output)
+    answer_ngrams: set[str] = set()
+    for run in answer_runs:
+        for size in range(min(8, len(run)), 2, -1):
+            answer_ngrams.update(run[index:index + size] for index in range(len(run) - size + 1))
+
+    candidates: set[str] = set()
+    for run in memory_runs:
+        for size in range(min(8, len(run)), 2, -1):
+            candidates.update(run[index:index + size] for index in range(len(run) - size + 1))
+    shared = sorted(
+        (
+            phrase for phrase in candidates & answer_ngrams
+            if phrase not in _GENERIC_CJK_PHRASES
+            and (len(phrase) >= 4 or phrase in named_values)
+        ),
+        key=lambda phrase: (-len(phrase), phrase),
+    )
+    return shared[0] if shared else ""
 
 
 # ── 参数自适应 ─────────────────────────────────────────────

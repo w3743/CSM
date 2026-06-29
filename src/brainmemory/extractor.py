@@ -37,6 +37,13 @@ Do not summarize the current conversation. Extract only durable information that
 
 Ignore: small talk, temporary states, one-off questions, content already represented in existing memories.
 
+Memory quality requirements:
+- Each write must contain exactly one durable, self-contained fact, preference, decision, or procedure.
+- Never store chain-of-thought, internal analysis, tool calls, command output, chat transcripts, or a summary of the conversation.
+- Copy the durable fact, not the surrounding dialogue. Keep content under 600 characters.
+- The summary must state the useful fact itself. Vague labels such as "user name", "who am I", "project info", or "conversation summary" are invalid.
+- If several independent facts are worth keeping, emit separate writes.
+
 When existing memories are provided as context, you may update or supersede them if the new information contradicts or refines them.
 
 Output JSON only. No explanations outside JSON."""
@@ -58,7 +65,7 @@ _SCHEMA_PROMPT = """Output format:
 Available operations: ADD, UPDATE, SUPERSEDE, ARCHIVE, DELETE, NOOP.
 - target_id is required for UPDATE, SUPERSEDE, ARCHIVE, and DELETE. It MUST be one of the "id" values from retrieved_memories. Do not invent IDs.
 - tags are free-form: use whatever labels feel natural (e.g. "preference, coding-style", "project, dependencies").
-- For ADD and SUPERSEDE, content is required and should be a self-contained memory (not a reply to the user). SUPERSEDE creates a NEW memory and permanently deletes the old one after inheriting its learned metadata.
+- For ADD and SUPERSEDE, content is required and must be an atomic, self-contained memory rather than a reply, transcript, analysis trace, or tool log. SUPERSEDE creates a NEW memory and permanently deletes the old one after inheriting its learned metadata.
 - If nothing in the conversation is worth remembering long-term, return a single NOOP."""
 
 

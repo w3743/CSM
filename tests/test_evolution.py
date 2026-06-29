@@ -60,6 +60,20 @@ def test_detect_feedback_used() -> None:
     assert fb[0]["action"] == "used"
 
 
+def test_detect_feedback_uses_exact_cjk_name_even_in_long_answer() -> None:
+    fb = detect_feedback(
+        "我是谁",
+        "家裕，你的姓名是王家裕（Wang Jiayu）。根据记忆，你还是 BrainMemory 项目的作者。",
+        [{
+            "id": 17,
+            "content": '用户姓名为王家裕（Wang Jiayu）。在对话中应称呼用户为"家裕"。',
+        }],
+    )
+    assert fb[0]["action"] == "used"
+    assert fb[0]["p_use"] >= 0.9
+    assert "王家裕" in fb[0]["evidence"]
+
+
 def test_detect_feedback_correction() -> None:
     fb = detect_feedback(
         "不对，应该用 pnpm 而不是 bun",

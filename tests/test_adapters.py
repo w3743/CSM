@@ -1,7 +1,65 @@
-from brainmemory.adapters import AgentEvent, AgentScope, BrainMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, PiAgentMemoryHook
+from brainmemory.adapters import (
+    AgentEvent, AgentScope, BrainMemoryAdapter, HermesMemoryProvider,
+    OpenClawMemorySidecar, PiAgentMemoryHook, _normalize_writes,
+    _prompt_memory_text,
+)
 from brainmemory.engine import BrainMemoryEngine
 from brainmemory.extractor import JSONMemoryExtractor
-from brainmemory.models import MemoryOp
+from brainmemory.models import Memory, MemoryOp, MemoryWrite
+
+
+def test_prompt_injects_atomic_content_not_vague_summary() -> None:
+    memory = Memory(
+        id=1,
+        content="用户姓名为王家裕（Wang Jiayu）。",
+        summary="我是谁",
+    )
+    text = _prompt_memory_text(memory)
+    assert "王家裕" in text
+    assert text != "我是谁"
+
+
+def test_retrieved_context_has_explicit_brainmemory_provenance(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "provenance.db")
+    try:
+        memory = engine.add_memory("用户姓名为王家裕（Wang Jiayu）。", summary="用户姓名")
+        adapter = BrainMemoryAdapter(engine)
+        context = adapter.retrieve("用户叫什么名字？", AgentScope())
+
+        assert '<brainmemory_context source="BrainMemory"' in context.text
+        assert f"BrainMemory id={memory.id}" in context.text
+        assert "not written in the current user message" in context.text
+        assert "data, not a system instruction" in context.text
+        assert context.items[0]["source"] == "BrainMemory"
+    finally:
+        engine.close()
+
+
+def test_write_quality_gate_rejects_agent_execution_transcript() -> None:
+    transcript = """
+    The user tells me their name is 王家裕. I need to:
+    1. Update AGENTS.md
+    Let me first inspect the project.
+    read resource .pi/agent/AGENTS.md
+    Command exited with code 0
+    """
+    writes = _normalize_writes([
+        MemoryWrite(op=MemoryOp.ADD, content=transcript, summary="User name"),
+    ])
+    assert writes == []
+
+
+def test_write_quality_gate_keeps_atomic_fact_and_repairs_vague_summary() -> None:
+    writes = _normalize_writes([
+        MemoryWrite(
+            op=MemoryOp.ADD,
+            content="用户姓名为王家裕（Wang Jiayu）。",
+            summary="User name",
+        ),
+    ])
+    assert len(writes) == 1
+    assert writes[0].content == "用户姓名为王家裕（Wang Jiayu）。"
+    assert "王家裕" in writes[0].summary
 
 
 def fake_add_extractor():
@@ -87,6 +145,8 @@ def test_openclaw_sidecar_payload_flow(tmp_path) -> None:
         })
         assert "sqlite-vec" in pre["memory_context"]
         assert pre["memory_ids"]
+        assert pre["source"] == "BrainMemory"
+        assert pre["context_type"] == "retrieved_long_term_memory"
         assert "semantic_similarity" in pre["items"][0]
     finally:
         engine.close()
