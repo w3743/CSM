@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from membrain.engine import CSMEngine
-from membrain.evaluation import (
+from brainmemory.engine import BrainMemoryEngine
+from brainmemory.evaluation import (
     evaluate_end_to_end_fixture, evaluate_mock_llm_fixture, evaluate_retrieval_fixture,
     evaluate_strength_fixture, evaluate_embedding_quality, run_full_evaluation,
     load_extraction_cases, load_retrieval_cases, load_end_to_end_cases, load_strength_cases,
@@ -32,7 +32,7 @@ def test_load_strength_cases() -> None:
     types = {c.type for c in cases}
     assert "decay" in types
     assert "reinforce" in types
-    assert "threshold" in types
+    assert types == {"decay", "reinforce"}
 
 
 def test_mock_llm_extractor_fixture_eval(tmp_path) -> None:
@@ -68,7 +68,7 @@ def test_strength_model_eval() -> None:
 
 
 def test_embedding_quality_eval(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "emb.db")
+    engine = BrainMemoryEngine(tmp_path / "emb.db")
     try:
         result = evaluate_embedding_quality(engine)
         assert result.details["backend"] == "local_bge_large_zh"

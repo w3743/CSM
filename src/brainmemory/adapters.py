@@ -27,22 +27,7 @@ class AgentScope:
 
     @property
     def storage_project_id(self) -> str | None:
-        return self.personal_project_id
-
-    @property
-    def personal_project_id(self) -> str | None:
-        if self.project_id:
-            return f"{self.project_id}:user:{self.user_id}"
-        if self.channel and self.user_id:
-            return f"{self.channel}:{self.user_id}"
-        if self.user_id:
-            return f"user:{self.user_id}"
-        return None
-
-    @property
-    def shared_project_id(self) -> str | None:
         return self.project_id
-
 
 @dataclass(slots=True)
 class MemoryContext:
@@ -76,12 +61,12 @@ class BrainMemoryAdapter:
 
     def retrieve(self, query: str, scope: AgentScope, budget_chars: int | None = None, limit: int = 8) -> MemoryContext:
         budget = budget_chars or self.default_budget_chars
-        groups = [
-            self.engine.search(query, project_id=scope.personal_project_id, limit=limit, mode=RetrievalMode.ANSWER_INJECTION),
-        ]
-        if scope.shared_project_id is not None:
-            groups.append(self.engine.search(query, project_id=scope.shared_project_id, limit=limit, mode=RetrievalMode.ANSWER_INJECTION))
-        results = filter_scoped_results(_merge_search_results(*groups), scope)[:limit]
+        results = self.engine.search(
+            query,
+            project_id=scope.project_id,
+            limit=limit,
+            mode=RetrievalMode.ANSWER_INJECTION,
+        )
         lines: list[str] = []
         ids: list[int] = []
         items: list[dict[str, Any]] = []
@@ -118,28 +103,31 @@ class BrainMemoryAdapter:
         writes: list[MemoryWrite] = []
         is_correction = _looks_like_correction(event.user_input)
         is_delete_request = _looks_like_delete_request(event.user_input)
+        feedback_memories = _memories_for_feedback(self.engine, event.used_memory_ids, event.scope)
+        feedback = detect_feedback(event.user_input, event.agent_output, feedback_memories)
+        feedback_by_id = {int(item["memory_id"]): item["action"] for item in feedback}
         if not is_delete_request:
             for memory_id in event.used_memory_ids:
+                memory = self.engine.store.get(memory_id)
+                if memory is None:
+                    continue
                 if is_correction:
-                    memory = self.engine.store.get(memory_id)
-                    if memory is None or not _correction_applies_to_memory(event.user_input, memory):
+                    if not _correction_applies_to_memory(event.user_input, memory):
                         continue
                     writes.append(MemoryWrite(op=MemoryOp.SUPERSEDE, target_id=memory_id, content=event.user_input, summary=event.user_input[:120]))
-                else:
+                elif feedback_by_id.get(memory_id) == "used":
                     writes.append(MemoryWrite(op=MemoryOp.UPDATE, target_id=memory_id))
         for content in event.explicit_memories:
             clean = content.strip()
             if clean:
                 writes.append(MemoryWrite(op=MemoryOp.ADD, content=clean))
 
-        arbitration_groups = [
-            self.engine.search(event.user_input, project_id=event.scope.personal_project_id, limit=5, mode=RetrievalMode.WRITE_ARBITRATION),
-        ]
-        if event.scope.shared_project_id is not None:
-            arbitration_groups.append(
-                self.engine.search(event.user_input, project_id=event.scope.shared_project_id, limit=5, mode=RetrievalMode.WRITE_ARBITRATION)
-            )
-        arbitration_results = filter_scoped_results(_merge_search_results(*arbitration_groups), event.scope)[:5]
+        arbitration_results = self.engine.search(
+            event.user_input,
+            project_id=event.scope.project_id,
+            limit=5,
+            mode=RetrievalMode.WRITE_ARBITRATION,
+        )
         retrieved = _retrieved_for_arbitration(arbitration_results)
         extracted = self.extractor.extract(
             user_input=event.user_input,
@@ -155,7 +143,7 @@ class BrainMemoryAdapter:
             self.engine.evolution.process_turn(
                 event.user_input,
                 event.agent_output,
-                retrieved,
+                feedback_memories,
             )
         except Exception:
             pass  # 反馈检测失败不阻塞主流程
@@ -304,18 +292,10 @@ def _looks_like_delete_request(text: str) -> bool:
 
 
 def _project_id_for_write(write: MemoryWrite, scope: AgentScope) -> str | None:
-    """决定新记忆的存储作用域。
-
-    三态分类：项目共享 → 个人私密 → 全局（不绑定项目）。
-    全局记忆对所有项目可见，适用于不涉及项目或个人偏好的环境事实。
-    """
+    """Single-user mode: new memories follow the current project."""
     if write.op != MemoryOp.ADD:
         return None
-    if _looks_like_project_memory(write.content, write.tags):
-        return scope.shared_project_id or scope.personal_project_id
-    if _looks_like_personal_memory(write.content, write.tags):
-        return scope.personal_project_id
-    return None  # 全局事实：不绑定任何项目，跨项目去重和检索
+    return scope.project_id
 
 
 def _looks_like_project_memory(content: str, tags: str = "") -> bool:
@@ -419,20 +399,28 @@ def _merge_search_results(*groups: list[SearchResult]) -> list[SearchResult]:
 
 
 def filter_scoped_results(results: list[SearchResult], scope: AgentScope) -> list[SearchResult]:
-    """Hide legacy unscoped personal memories from user-scoped retrieval."""
-    if not scope.user_id:
-        return results
-    filtered: list[SearchResult] = []
-    for result in results:
-        memory = result.memory
-        if memory.project_id and memory.project_id.startswith("user:") and memory.project_id != scope.personal_project_id:
+    """Compatibility helper; user identity does not filter results."""
+    return results
+
+
+def _memories_for_feedback(
+    engine: BrainMemoryEngine,
+    memory_ids: list[int],
+    scope: AgentScope,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for memory_id in dict.fromkeys(memory_ids):
+        memory = engine.store.get(memory_id)
+        if memory is None:
             continue
-        if memory.project_id and ":user:" in memory.project_id and memory.project_id != scope.personal_project_id:
-            continue
-        if memory.project_id is None and _looks_like_personal_memory(memory.content, memory.tags):
-            continue
-        filtered.append(result)
-    return filtered
+        items.append({
+            "id": memory.id,
+            "content": memory.content,
+            "summary": memory.summary,
+            "tags": memory.tags,
+            "status": memory.status.value,
+        })
+    return items
 
 
 def _prompt_memory_text(memory: Memory) -> str:

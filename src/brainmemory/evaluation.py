@@ -56,7 +56,7 @@ class EndToEndCase:
 @dataclass(slots=True)
 class StrengthCase:
     id: str
-    type: str  # decay | reinforce | threshold | saturation
+    type: str  # decay | reinforce
     initial_strength: float
     days_elapsed: float
     access_count: int
@@ -111,7 +111,7 @@ class StrengthEvalResult:
     passed: int = 0
     decay_ok: int = 0
     reinforce_ok: int = 0
-    threshold_ok: int = 0
+    threshold_ok: int = 0  # retained in the report schema for compatibility
     failures: list[dict[str, str]] = field(default_factory=list)
 
     @property
@@ -444,7 +444,6 @@ def evaluate_strength_model(cases: list[StrengthCase]) -> StrengthEvalResult:
     对每种测试类型，创建模拟 Memory 并验证：
     - 衰减：elapsed_days 后的 current_strength 是否在预期范围
     - 强化：reinforce 后的值是否在预期范围
-    - 阈值：动态阈值下 resolve_layer 是否正确
     """
     failures = []
     decay_ok = 0

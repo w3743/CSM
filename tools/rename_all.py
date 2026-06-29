@@ -1,62 +1,62 @@
-"""批量替换项目中所有命名引用。"""
-import os, re
+"""One-off helper for migrating legacy MemBrain/CSM text references."""
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from __future__ import annotations
 
-# 替换规则：(模式, 替换为)，按顺序应用
-RULES = [
-    # Python 包导入
-    ('membrain.', 'membrain.'),
-    ('membrain/', 'membrain/'),
-    ('membrain"', 'membrain"'),
-    ("membrain'", "membrain'"),
-    # pip 包名
-    ('membrain', 'membrain'),
-    ('membrain', 'membrain'),  # 剩余的纯 membrain
-    # 类脑记忆文案（保留 CSM 为模块内部实现名，仅改面向用户的）
-    # CSM 类名/变量名保持不动（内部实现）
-    # 以下只改面向用户的文案
-]
+from pathlib import Path
 
-SKIP_DIRS = {'.git', '__pycache__', 'models', '.pytest_cache', '.pytest_tmp', '.tmp', '.csm_eval', 'membrain.egg-info'}
-SKIP_EXTS = {'.pyc', '.db', '.db-wal', '.db-shm', '.pdf', '.safetensors', '.bin', '.pth'}
 
-def process_file(filepath):
-    ext = os.path.splitext(filepath)[1]
-    if ext in SKIP_EXTS:
+BASE = Path(__file__).resolve().parents[1]
+RULES = (
+    ("membrain", "brainmemory"),
+    ("CSM_DEEPSEEK", "BRAINMEMORY_DEEPSEEK"),
+    ("CSM_EMBEDDING", "BRAINMEMORY_EMBEDDING"),
+    ("CSM_LLM", "BRAINMEMORY_LLM"),
+    ("CSM_API_KEY", "BRAINMEMORY_API_KEY"),
+    ("CSM_PROJECT_DIR", "BRAINMEMORY_PROJECT_DIR"),
+    ("CSM_PYTHON", "BRAINMEMORY_PYTHON"),
+    ("CSM_PORT", "BRAINMEMORY_PORT"),
+    ("CSM_HOST", "BRAINMEMORY_HOST"),
+    ("CSM_DB", "BRAINMEMORY_DB"),
+)
+SKIP_DIRS = {
+    ".git",
+    "__pycache__",
+    "models",
+    ".pytest_cache",
+    ".pytest_tmp",
+    ".tmp",
+    ".csm_eval",
+}
+SKIP_SUFFIXES = {".pyc", ".db", ".pdf", ".safetensors", ".bin", ".pth"}
+
+
+def process_file(path: Path) -> bool:
+    if path.suffix in SKIP_SUFFIXES or path.name.endswith((".db-wal", ".db-shm")):
         return False
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-    except:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
         return False
-    
+
     modified = content
-    # 1. membrain → membrain (Python import)
-    modified = modified.replace('membrain', 'membrain')
-    # 2. membrain → membrain (pip name)
-    modified = modified.replace('membrain', 'membrain')
-    # 3. membrain_memory → membrain_memory (DB/file paths)
-    modified = modified.replace('membrain_memory', 'membrain_memory')
-    # 4. mb-memory → mb-memory (pi extension)
-    modified = modified.replace('mb-memory', 'mb-memory')
-    # 5. MB 记忆 → MB 记忆（中文文案）
-    modified = modified.replace('MB 记忆', 'MB 记忆')
-    modified = modified.replace('MB 记忆', 'MB 记忆')
-    
-    if modified != content:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(modified)
-        return True
-    return False
+    for old, new in RULES:
+        modified = modified.replace(old, new)
+    if modified == content:
+        return False
+    path.write_text(modified, encoding="utf-8")
+    return True
 
-count = 0
-for root, dirs, files in os.walk(BASE):
-    dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-    for fname in files:
-        fp = os.path.join(root, fname)
-        if process_file(fp):
+
+def main() -> None:
+    count = 0
+    for path in BASE.rglob("*"):
+        if not path.is_file() or any(part in SKIP_DIRS for part in path.parts):
+            continue
+        if process_file(path):
             count += 1
-            print(f'  modified: {os.path.relpath(fp, BASE)}')
+            print(f"modified: {path.relative_to(BASE)}")
+    print(f"{count} files modified")
 
-print(f'\n{count} files modified')
+
+if __name__ == "__main__":
+    main()

@@ -15,7 +15,8 @@ def openapi_spec() -> dict[str, Any]:
                     "project_id": {"type": ["string", "null"], "description": "Workspace/project boundary."},
                     "user_id": {
                         "type": ["string", "null"],
-                        "description": "Optional on create. When present, admin save uses the same personal/shared partition rules as agent integrations.",
+                        "deprecated": True,
+                        "description": "Ignored compatibility field; BrainMemory runs in single-user mode.",
                     },
                     "summary": {"type": "string"},
                     "tags": {"type": "string"},
@@ -33,7 +34,8 @@ def openapi_spec() -> dict[str, Any]:
                     "project_id": {"type": ["string", "null"]},
                     "user_id": {
                         "type": ["string", "null"],
-                        "description": "When present, retrieval merges the user's personal partition with the shared project partition.",
+                        "deprecated": True,
+                        "description": "Ignored compatibility field; project_id is the only retrieval boundary.",
                     },
                     "mode": {"type": "string", "enum": ["answer_injection", "write_arbitration"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 20},
@@ -51,7 +53,8 @@ def openapi_spec() -> dict[str, Any]:
                     "project_id": {"type": ["string", "null"]},
                     "user_id": {
                         "type": ["string", "null"],
-                        "description": "When present, arbiter retrieval and commits use the same AgentScope partitioning as external agents.",
+                        "deprecated": True,
+                        "description": "Ignored compatibility field; project_id is the only storage boundary.",
                     },
                     "agent_output": {"type": "string"},
                     "tool_results": {"type": "array", "items": {"type": "string"}},
@@ -65,13 +68,13 @@ def openapi_spec() -> dict[str, Any]:
     return {
         "openapi": "3.1.0",
         "info": {
-            "title": "CSM Memory Sidecar API",
+            "title": "BrainMemory Sidecar API",
             "version": "0.1.0",
             "description": "Continuous Strength Memory sidecar API for long-running LLM agents.",
         },
         "components": {
             "securitySchemes": {
-                "ApiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-CSM-API-Key"},
+                "ApiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-BrainMemory-API-Key"},
                 "BearerAuth": {"type": "http", "scheme": "bearer"},
             }
         },
@@ -130,7 +133,7 @@ def openapi_spec() -> dict[str, Any]:
             },
             "/admin": {
                 "get": {
-                    "summary": "CSM Memory Console web UI",
+                    "summary": "BrainMemory Console web UI",
                     "responses": {"200": {"description": "HTML admin console"}},
                 }
             },

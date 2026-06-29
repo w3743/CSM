@@ -6,7 +6,6 @@ from .embedding import LocalSentenceTransformerEmbeddingBackend, build_embedding
 from .retrieval import HybridRetriever, RetrievalMode, SearchResult
 from .store import MemoryStore
 from .strength import INITIAL_STRENGTH, DECAY_RATE, current_strength, reinforce
-from .security import MemorySecurityPolicy, classify_sensitivity
 from .evolution import EvolutionEngine, apply_feedback, detect_feedback, inherit_from
 from .adapters import BrainMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, PiAgentMemoryHook
 from .extractor import (
@@ -22,7 +21,6 @@ __all__ = [
     "LocalSentenceTransformerEmbeddingBackend", "build_embedding_backend_from_env",
     "HybridRetriever", "RetrievalMode", "SearchResult",
     "INITIAL_STRENGTH", "DECAY_RATE", "current_strength", "reinforce",
-    "MemorySecurityPolicy", "classify_sensitivity",
     "EvolutionEngine", "apply_feedback", "detect_feedback", "inherit_from",
     "BrainMemoryAdapter", "HermesMemoryProvider", "OpenClawMemorySidecar", "PiAgentMemoryHook",
     "DeepSeekMemoryExtractor", "JSONMemoryExtractor", "NullMemoryExtractor",

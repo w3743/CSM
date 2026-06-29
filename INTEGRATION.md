@@ -1,4 +1,4 @@
-# CSM Agent ↔ pi Agent 集成文档
+# BrainMemory ↔ pi Agent 集成文档
 
 > **变更记录** — 本文档详细记录了将 CSM 连续强度记忆系统接入 pi coding agent 的全部工作。
 
@@ -24,7 +24,7 @@
 | `DECAY_RATE_BY_TYPE` 字典 | 统一衰减率 0.02/天 |
 | 检索中 7 个手工权重 | 简化为 `语义相似度 × 强度` |
 | 中英文关键词→类型映射表 | 纯 embedding 语义匹配 |
-| 固定 L1/L2/L3 阈值 (0.8/0.4/0.1) | 动态百分位阈值（前 20%/60%/90%） |
+| 固定 L1/L2/L3 阈值 | 连续强度 R（0–1）直接参与排序 |
 | 大段 LLM 操作规则提示词 | 简短自然语言描述意图 |
 
 ### 新增
@@ -33,7 +33,7 @@
 |------|------|
 | 自由标签 `tags` | 替代固定 MemoryType |
 | `access_count` | 涌现"重要性"的核心字段 |
-| 动态百分位分层 | `compute_layer_thresholds()` |
+| 连续强度与归档阈值 | `current_strength()` / `ARCHIVE_THRESHOLD` |
 | 本地语义嵌入 | 统一使用本地 BGE-large-zh-v1.5，不再回退 hash |
 
 ---
@@ -54,14 +54,14 @@
 │                          │        │
 │  命令：                   │        │
 │    /remember <内容>      │        │
-│    /csm-health          │        │
-│    /csm-search <查询>    │        │
+│    /bm-health          │        │
+│    /bm-search <查询>    │        │
 └──────────────┬───────────┘        │
                │ HTTP               │
                ▼                    │
 ┌──────────────────────────────┐    │
-│  CSM Sidecar (Python)         │    │
-│  python -m membrain.cli      │    │
+│  BrainMemory Sidecar (Python)         │    │
+│  python -m brainmemory.cli      │    │
 │       serve                   │    │
 │                               │    │
 │  POST /pre_prompt  检索记忆   │◄───┘
@@ -71,7 +71,7 @@
 │  GET  /admin/health 健康报告 │
 │                               │
 │  SQLite 数据库：               │
-│  ~/.pi/agent/membrain_memory.db    │
+│  ~/.pi/agent/brainmemory_memory.db    │
 └──────────────────────────────┘
 ```
 
@@ -113,7 +113,7 @@
 ### 前置条件
 
 - Node.js 18+ (pi 运行环境)
-- Python 3.10+ (CSM sidecar 运行环境)
+- Python 3.10+ (BrainMemory sidecar 运行环境)
 - CSM 项目位于 `C:\Users\wangj\Desktop\1`
 
 ### 方式一：保持扩展在 CSM 项目内（推荐）
@@ -122,7 +122,7 @@
 
 ```powershell
 # 1. 设置环境变量（添加到 $PROFILE 或系统环境变量）
-[Environment]::SetEnvironmentVariable("CSM_PROJECT_DIR", "C:\Users\wangj\Desktop\1", "User")
+[Environment]::SetEnvironmentVariable("BRAINMEMORY_PROJECT_DIR", "C:\Users\wangj\Desktop\1", "User")
 
 # 2. 启动 pi 时加载扩展
 pi -e C:\Users\wangj\Desktop\1\pi-extension\mb-memory.ts
@@ -148,14 +148,14 @@ Copy-Item C:\Users\wangj\Desktop\1\pi-extension\mb-memory.ts `
   $env:USERPROFILE\.pi\agent\extensions\mb-memory.ts
 
 # 2. 设置环境变量（必须！否则扩展找不到 CSM 项目）
-[Environment]::SetEnvironmentVariable("CSM_PROJECT_DIR", "C:\Users\wangj\Desktop\1", "User")
+[Environment]::SetEnvironmentVariable("BRAINMEMORY_PROJECT_DIR", "C:\Users\wangj\Desktop\1", "User")
 ```
 
 ### 配置 DeepSeek API（启用自动记忆提取）
 
 ```powershell
 # 方式1：设置环境变量
-$env:CSM_DEEPSEEK_API_KEY = "sk-your-key"
+$env:BRAINMEMORY_DEEPSEEK_API_KEY = "sk-your-key"
 
 # 方式2：使用管理界面
 # 启动 sidecar 后访问 http://127.0.0.1:19876/admin
@@ -180,8 +180,8 @@ $env:CSM_DEEPSEEK_API_KEY = "sk-your-key"
 | 命令 | 功能 | 示例 |
 |------|------|------|
 | `/remember <内容>` | 手动存入一条记忆 | `/remember 用户偏好使用 pnpm 管理依赖` |
-| `/csm-health` | 查看记忆库健康状态 | `/csm-health` |
-| `/csm-search <查询>` | 搜索记忆库 | `/csm-search 依赖管理` |
+| `/bm-health` | 查看记忆库健康状态 | `/bm-health` |
+| `/bm-search <查询>` | 搜索记忆库 | `/bm-search 依赖管理` |
 
 ### 记忆的类型
 
@@ -211,13 +211,13 @@ $env:CSM_DEEPSEEK_API_KEY = "sk-your-key"
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `CSM_PROJECT_DIR` | 自动检测 | CSM 项目根目录 |
-| `CSM_PORT` | 19876 | sidecar HTTP 端口 |
-| `CSM_DB` | `~/.pi/agent/membrain_memory.db` | SQLite 数据库路径 |
-| `CSM_DEEPSEEK_API_KEY` | (空) | DeepSeek API 密钥 |
+| `BRAINMEMORY_PROJECT_DIR` | 自动检测 | CSM 项目根目录 |
+| `BRAINMEMORY_PORT` | 19876 | sidecar HTTP 端口 |
+| `BRAINMEMORY_DB` | `~/.pi/agent/brainmemory_memory.db` | SQLite 数据库路径 |
+| `BRAINMEMORY_DEEPSEEK_API_KEY` | (空) | DeepSeek API 密钥 |
 | `DEEPSEEK_API_KEY` | (空) | 同上（备选变量名） |
-| `CSM_EMBEDDING_BACKEND` | `local` | 向量后端，运行时统一使用本地 BGE |
-| `CSM_EMBEDDING_MODEL` | `C:\Users\wangj\Desktop\1\models\bge-large-zh-v1.5` | 本地 BGE-large-zh-v1.5 模型目录 |
+| `BRAINMEMORY_EMBEDDING_BACKEND` | `local` | 向量后端，运行时统一使用本地 BGE |
+| `BRAINMEMORY_EMBEDDING_MODEL` | `C:\Users\wangj\Desktop\1\models\bge-large-zh-v1.5` | 本地 BGE-large-zh-v1.5 模型目录 |
 
 ### 本地语义向量
 
@@ -225,13 +225,13 @@ $env:CSM_DEEPSEEK_API_KEY = "sk-your-key"
 # 安装项目依赖时会安装 sentence-transformers；这里主要显式指定本地模型。
 
 # 设置环境变量。pi 扩展和管理台脚本会自动设置；手动运行 CLI 时可显式设置。
-$env:CSM_EMBEDDING_BACKEND = "local"
-$env:CSM_EMBEDDING_MODEL = "C:\Users\wangj\Desktop\1\models\bge-large-zh-v1.5"
+$env:BRAINMEMORY_EMBEDDING_BACKEND = "local"
+$env:BRAINMEMORY_EMBEDDING_MODEL = "C:\Users\wangj\Desktop\1\models\bge-large-zh-v1.5"
 
 # 重建向量索引（在 CSM 项目目录执行）
 cd C:\Users\wangj\Desktop\1
 $env:PYTHONPATH = "src"
-python -m membrain.cli --db $env:USERPROFILE\.pi\agent\membrain_memory.db reindex-embeddings
+python -m brainmemory.cli --db $env:USERPROFILE\.pi\agent\brainmemory_memory.db reindex-embeddings
 ```
 
 ---
@@ -243,7 +243,7 @@ C:\Users\wangj\Desktop\1\
 ├── pi-extension/
 │   └── mb-memory.ts          ★ 新增：pi 扩展（约 350 行 TypeScript）
 ├── INTEGRATION.md              ★ 新增：本集成文档
-├── src/membrain/              ★ 核心记忆引擎（已接入本地 BGE、分区与兼容字段）
+├── src/brainmemory/              ★ 核心记忆引擎（本地 BGE、项目边界与兼容字段）
 │   ├── server.py
 │   ├── engine.py
 │   ├── adapters.py
@@ -263,7 +263,7 @@ python --version
 # 2. 手动启动 sidecar 查看错误
 cd C:\Users\wangj\Desktop\1
 $env:PYTHONPATH = "src"
-python -m membrain.cli --db $env:USERPROFILE\.pi\agent\membrain_memory.db serve --port 19876
+python -m brainmemory.cli --db $env:USERPROFILE\.pi\agent\brainmemory_memory.db serve --port 19876
 
 # 3. 检查端口是否被占用
 netstat -ano | findstr 19876
@@ -275,7 +275,7 @@ netstat -ano | findstr 19876
 # 检查 DeepSeek API 配置
 cd C:\Users\wangj\Desktop\1
 $env:PYTHONPATH = "src"
-python -m membrain.cli deepseek-check "测试内容" --project test
+python -m brainmemory.cli deepseek-check "测试内容" --project test
 ```
 
 ### 查看记忆库内容
@@ -291,7 +291,7 @@ http://127.0.0.1:19876/admin
 ```powershell
 cd C:\Users\wangj\Desktop\1
 $env:PYTHONPATH = "src"
-python -m membrain.cli --db $env:USERPROFILE\.pi\agent\membrain_memory.db search "关键词"
+python -m brainmemory.cli --db $env:USERPROFILE\.pi\agent\brainmemory_memory.db search "关键词"
 ```
 
 ---
@@ -304,7 +304,7 @@ python -m membrain.cli --db $env:USERPROFILE\.pi\agent\membrain_memory.db search
 # 1. 启动 sidecar
 cd C:\Users\wangj\Desktop\1
 $env:PYTHONPATH = "src"
-Start-Process python -ArgumentList "-m","membrain.cli","--db","$env:USERPROFILE\.pi\agent\membrain_memory.db","serve","--port","19876"
+Start-Process python -ArgumentList "-m","brainmemory.cli","--db","$env:USERPROFILE\.pi\agent\brainmemory_memory.db","serve","--port","19876"
 
 # 2. 测试手动存入记忆
 curl -X POST http://127.0.0.1:19876/remember `
@@ -333,15 +333,15 @@ pi -e C:\Users\wangj\Desktop\1\pi-extension\mb-memory.ts
 
 # 在 pi 中测试：
 /remember 用户偏好：回答技术问题时先给结论，再给必要步骤
-/csm-health
-/csm-search 回答风格
+/bm-health
+/bm-search 回答风格
 ```
 
 ---
 
 ## 🔄 后续升级建议
 
-1. **多用户支持**：将 `user_id` 从固定的 `"pi-user"` 改为系统用户名
+1. **单用户模式**：`user_id` 已废弃并被忽略，工作区哈希作为 `project_id`
 2. **记忆可视化**：在 pi 中集成简易的记忆浏览 UI
 3. **会话级记忆隔离**：利用 CSM 的 `session_id` 字段追踪对话来源
 4. **记忆冲突检测**：当新旧记忆矛盾时，提醒用户确认

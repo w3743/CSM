@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
-from .adapters import AgentScope, BrainMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, filter_scoped_results
+from .adapters import AgentScope, BrainMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar
 from .api_contract import openapi_spec
 from .engine import BrainMemoryEngine
 from .embedding import embedding_config_from_env
@@ -272,33 +272,16 @@ def _search_payload(result) -> dict[str, Any]:
 
 
 def _search_for_admin(engine, text, project_id, limit, mode: RetrievalMode, user_id: str = "") -> list[Any]:
-    if not user_id:
-        return engine.search(text, project_id=project_id, limit=limit, mode=mode)
-    scope = AgentScope(user_id=user_id, project_id=project_id)
-    by_id = {}
-    for pid in [scope.personal_project_id, scope.shared_project_id]:
-        if not pid:
-            continue
-        for result in engine.search(text, project_id=pid, limit=limit, mode=mode):
-            memory_id = result.memory.id
-            if memory_id is not None and (memory_id not in by_id or result.final_score > by_id[memory_id].final_score):
-                by_id[memory_id] = result
-    ranked = sorted(by_id.values(), key=lambda item: item.final_score, reverse=True)
-    return filter_scoped_results(ranked, scope)[:limit]
+    return engine.search(text, project_id=project_id, limit=limit, mode=mode)
 
 
 def _retrieved_for_admin(engine, text, project_id, limit, user_id: str = "") -> list[dict[str, Any]]:
-    scope = AgentScope(user_id=user_id or "default", project_id=project_id)
-    project_ids = [scope.personal_project_id, scope.shared_project_id] if user_id else [project_id]
-    by_id = {}
-    for pid in project_ids:
-        if not pid:
-            continue
-        for result in engine.search(text, project_id=pid, limit=limit, mode=RetrievalMode.WRITE_ARBITRATION):
-            memory_id = result.memory.id
-            if memory_id is not None and (memory_id not in by_id or result.final_score > by_id[memory_id].final_score):
-                by_id[memory_id] = result
-    ranked = filter_scoped_results(sorted(by_id.values(), key=lambda item: item.final_score, reverse=True), scope)[:limit]
+    ranked = engine.search(
+        text,
+        project_id=project_id,
+        limit=limit,
+        mode=RetrievalMode.WRITE_ARBITRATION,
+    )
     return [{
         "id": r.memory.id, "content": r.memory.content,
         "summary": r.memory.summary, "tags": r.memory.tags,
@@ -307,7 +290,7 @@ def _retrieved_for_admin(engine, text, project_id, limit, user_id: str = "") -> 
 
 
 def _admin_storage_project_id(project_id: str | None, user_id: str = "") -> str | None:
-    return AgentScope(user_id=user_id or "default", project_id=project_id).storage_project_id if user_id else project_id
+    return project_id
 
 
 def _plan_payload(plan) -> dict[str, Any]:

@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title CSM Agent 安装程序
+title BrainMemory 安装程序
 echo.
 echo ╔══════════════════════════════════════╗
-echo ║   CSM Agent 一键安装程序            ║
+echo ║   BrainMemory 一键安装程序          ║
 echo ╚══════════════════════════════════════╝
 echo.
 
@@ -19,35 +19,27 @@ python --version
 
 :: 安装 CSM
 echo.
-echo [1/2] 安装 membrain ...
-pip install git+https://github.com/yourname/membrain.git
+echo [1/2] 安装 brainmemory ...
+pip install git+https://github.com/w3743/BrainMemory.git
 if %errorlevel% neq 0 (
     echo [警告] 远程安装失败，尝试从本地安装...
     cd /d "%~dp0"
     pip install .
 )
 
-:: 安装嵌入模型（可选）
+:: 安装嵌入模型
 echo.
-echo [2/2] 安装语义向量模型（BGE-large-zh, 约 1.3GB）？
-echo    Y = 完整安装（推荐，支持语义搜索）
-echo    N = 基础安装（仅关键词搜索）
-choice /c YN /n /m "选择 [Y/N]: "
-if %errorlevel% equ 2 goto :skip_embed
+echo [2/2] 检查语义向量依赖（BGE-large-zh 首次运行约下载 1.3GB）
 
 set HF_ENDPOINT=https://hf-mirror.com
 echo 使用 HuggingFace 镜像下载模型...
 pip install sentence-transformers
-if %errorlevel% neq 0 (
-    echo [警告] 模型安装失败，基础功能仍可用
-)
-
-:skip_embed
+if %errorlevel% neq 0 exit /b 1
 :: 配置 DeepSeek
 echo.
 set /p API_KEY="DeepSeek API Key（留空跳过）: "
 if not "%API_KEY%"=="" (
-    echo {"api_key": "%API_KEY%", "model": "deepseek-v4-flash"} > "%USERPROFILE%\.csm_llm_config.json"
+    echo {"api_key": "%API_KEY%", "model": "deepseek-v4-flash"} > "%USERPROFILE%\.brainmemory_llm_config.json"
     echo API Key 已保存
 )
 
@@ -55,7 +47,7 @@ echo.
 echo ══════════════════════════════════════
 echo 安装完成！
 echo.
-echo 启动管理控制台: membrain serve
+echo 启动管理控制台: brainmemory serve
 echo 浏览器打开: http://127.0.0.1:8765
 echo.
 echo 日常使用只需启动一次，后台长期运行。

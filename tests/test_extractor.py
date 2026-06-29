@@ -2,18 +2,18 @@ import pytest
 import os
 import json
 
-from membrain.extractor import (
+from brainmemory.extractor import (
     DeepSeekMemoryExtractor, JSONMemoryExtractor, LLMExtractorNotConfigured,
     build_default_extractor, parse_memory_write_plan,
 )
-from membrain.models import MemoryOp
+from brainmemory.models import MemoryOp
 
 
 def test_default_extractor_without_key_is_noop() -> None:
     old_deepseek = os.environ.pop("DEEPSEEK_API_KEY", None)
-    old_csm_deepseek = os.environ.pop("CSM_DEEPSEEK_API_KEY", None)
-    old_config_path = os.environ.get("CSM_LLM_CONFIG_PATH")
-    os.environ["CSM_LLM_CONFIG_PATH"] = "__missing_test_llm_config__.json"
+    old_csm_deepseek = os.environ.pop("BRAINMEMORY_DEEPSEEK_API_KEY", None)
+    old_config_path = os.environ.get("BRAINMEMORY_LLM_CONFIG_PATH")
+    os.environ["BRAINMEMORY_LLM_CONFIG_PATH"] = "__missing_test_llm_config__.json"
     try:
         extractor = build_default_extractor()
         plan = extractor.extract(user_input="以后回答技术问题时，请先给结论。")
@@ -22,11 +22,11 @@ def test_default_extractor_without_key_is_noop() -> None:
         if old_deepseek is not None:
             os.environ["DEEPSEEK_API_KEY"] = old_deepseek
         if old_csm_deepseek is not None:
-            os.environ["CSM_DEEPSEEK_API_KEY"] = old_csm_deepseek
+            os.environ["BRAINMEMORY_DEEPSEEK_API_KEY"] = old_csm_deepseek
         if old_config_path is None:
-            os.environ.pop("CSM_LLM_CONFIG_PATH", None)
+            os.environ.pop("BRAINMEMORY_LLM_CONFIG_PATH", None)
         else:
-            os.environ["CSM_LLM_CONFIG_PATH"] = old_config_path
+            os.environ["BRAINMEMORY_LLM_CONFIG_PATH"] = old_config_path
 
 
 def test_deepseek_requires_api_key() -> None:

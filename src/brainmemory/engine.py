@@ -78,7 +78,7 @@ class BrainMemoryEngine:
             if existing is not None:
                 existing.summary = summary or existing.summary
                 existing.tags = _merge_tags(existing.tags, tags)
-                existing.sensitivity = _max_sensitivity(existing.sensitivity, sensitivity)
+                existing.sensitivity = sensitivity
                 existing.strength = reinforce(existing)
                 existing.last_accessed_at = utc_now()
                 existing.access_count += 1
@@ -102,6 +102,7 @@ class BrainMemoryEngine:
             target.content = content or target.content
             target.summary = summary or target.summary
             target.tags = tags or target.tags
+            target.sensitivity = sensitivity or target.sensitivity
             target.strength = reinforce(target)
             target.last_accessed_at = utc_now()
             target.access_count += 1
@@ -117,10 +118,9 @@ class BrainMemoryEngine:
             )
             inherit_from(replacement, target)  # 继承旧记忆的信任
             self.store.update(replacement)
-            target.status = MemoryStatus.SUPERSEDED
-            target.superseded_by = replacement.id
-            self.store.update(target)
-            self.store.add_link(target.id or 0, replacement.id or 0, "superseded_by")
+            # The replacement has inherited the useful history; the obsolete
+            # record is no longer retained.
+            self.store.delete(target_id)
             return replacement
 
         if op == MemoryOp.ARCHIVE:
@@ -140,14 +140,17 @@ class BrainMemoryEngine:
             return None
         query_vec = self.store.embedding.embed(content)
         best: tuple[float, Memory] | None = None
-        for memory in self.store.list_all():
+        rows = self.store.conn.execute(
+            "SELECT * FROM memories WHERE status='active' AND project_id IS ?",
+            (project_id,),
+        ).fetchall()
+        for row in rows:
+            memory = Memory.from_row(row)
             if memory.status != MemoryStatus.ACTIVE:
-                continue
-            if memory.project_id != project_id:
                 continue
             if _normalize_memory_text(memory.content) == normalized:
                 return memory
-            semantic = cosine(query_vec, self.store.embedding.embed(memory.text_for_index))
+            semantic = cosine(query_vec, self.store.embedding_for_row(row))
             lexical = _token_overlap(content, memory.text_for_index)
             if semantic >= 0.92 and lexical >= 0.45:
                 score = semantic + lexical
@@ -182,14 +185,19 @@ class BrainMemoryEngine:
     # ── 睡眠整理 ──────────────────────────────────────────────
 
     def sleep_consolidate(self, archive_threshold: float | None = None) -> dict[str, object]:
-        """Sleep consolidation: archive memories with R below threshold."""
+        """Archive weak memories and physically remove superseded records."""
         memories = self.store.list(include_archived=False)
         if not memories:
-            return {"total": 0, "archived": 0}
+            return {"total": 0, "archived": 0, "deleted_superseded": 0}
 
         R_low = archive_threshold if archive_threshold is not None else ARCHIVE_THRESHOLD
         archived = 0
+        deleted_superseded = 0
         for memory in memories:
+            if memory.status == MemoryStatus.SUPERSEDED:
+                if memory.id is not None and self.store.delete(memory.id):
+                    deleted_superseded += 1
+                continue
             R = current_strength(memory)
             if memory.status == MemoryStatus.ACTIVE and R < R_low:
                 memory.status = MemoryStatus.ARCHIVED
@@ -201,6 +209,7 @@ class BrainMemoryEngine:
         return {
             "total": len(memories),
             "archived": archived,
+            "deleted_superseded": deleted_superseded,
         }
 
     def health_report(self) -> dict[str, object]:
@@ -263,10 +272,3 @@ def _merge_tags(left: str, right: str) -> str:
                 seen.add(tag)
                 tags.append(tag)
     return ",".join(tags)
-
-
-def _max_sensitivity(left: str, right: str) -> str:
-    rank = {"normal": 0, "personal": 1, "secret": 2}
-    left_rank = rank.get(left, 0)
-    right_rank = rank.get(right, 0)
-    return left if left_rank >= right_rank else right

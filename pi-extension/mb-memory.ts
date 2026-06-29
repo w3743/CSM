@@ -1,5 +1,5 @@
 /**
- * CSM Memory Extension for Pi Coding Agent
+ * BrainMemory Extension for Pi Coding Agent
  * ─────────────────────────────────────────
  * 为 pi agent 提供跨对话持久化记忆能力。
  *
@@ -11,14 +11,15 @@
  *
  * 命令：
  *   /remember <内容>  手动存入一条记忆
- *   /csm-health        查看记忆健康报告
- *   /csm-search <查询> 搜索记忆库
+ *   /bm-health         查看记忆健康报告
+ *   /bm-search <查询>  搜索记忆库
  *
  * 环境变量：
- *   CSM_PROJECT_DIR     CSM 项目根目录（默认：本文件所在目录的上级）
- *   CSM_PORT            sidecar 端口（默认：8765）
- *   CSM_DB              数据库路径（默认：~/.pi/agent/csm_memory.db）
- *   CSM_EMBEDDING_MODEL 本地 BGE 模型路径（默认：<项目>/models/bge-large-zh-v1.5）
+ *   BRAINMEMORY_PROJECT_DIR     CSM 项目根目录（默认：本文件所在目录的上级）
+ *   BRAINMEMORY_PORT            sidecar 端口（默认：8765）
+ *   BRAINMEMORY_DB              数据库路径（默认：~/.pi/agent/brainmemory.db）
+ *   BRAINMEMORY_API_KEY         可选 Sidecar API Key
+ *   BRAINMEMORY_EMBEDDING_MODEL 本地 BGE 模型路径（默认：<项目>/models/bge-large-zh-v1.5）
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -32,24 +33,25 @@ import { join, resolve } from "node:path";
 // 配置
 // ═══════════════════════════════════════════════════════════════════
 
-const CSM_HOST = "127.0.0.1";
-const CSM_PORT = parseInt(process.env.CSM_PORT || "8765", 10);
-const CSM_BASE = `http://${CSM_HOST}:${CSM_PORT}`;
+const BRAINMEMORY_HOST = "127.0.0.1";
+const BRAINMEMORY_PORT = parseInt(process.env.BRAINMEMORY_PORT || "8765", 10);
+const CSM_BASE = `http://${BRAINMEMORY_HOST}:${BRAINMEMORY_PORT}`;
+const BRAINMEMORY_API_KEY = process.env.BRAINMEMORY_API_KEY || "";
 /** 智能检测 CSM 项目根目录（仅开发模式使用） */
-const CSM_PROJECT_DIR = (() => {
-  if (process.env.CSM_PROJECT_DIR) return process.env.CSM_PROJECT_DIR;
+const BRAINMEMORY_PROJECT_DIR = (() => {
+  if (process.env.BRAINMEMORY_PROJECT_DIR) return process.env.BRAINMEMORY_PROJECT_DIR;
   const dir = resolve(__dirname);
   if (dir.endsWith("pi-extension") || dir.endsWith("pi-extension\\")) {
     return resolve(dir, "..");
   }
   return dir;
 })();
-/** pip 安装后 membrain 在 site-packages，无需 PYTHONPATH */
+/** pip 安装后 brainmemory 在 site-packages，无需 PYTHONPATH */
 const CSM_IS_PIP_INSTALLED = (() => {
   try {
     const result = spawnSync(
       process.platform === "win32" ? "python" : "python3",
-      ["-c", "import membrain"],
+      ["-c", "import brainmemory"],
       { timeout: 5000 }
     );
     return result.status === 0;
@@ -57,14 +59,14 @@ const CSM_IS_PIP_INSTALLED = (() => {
     return false;
   }
 })();
-const CSM_SRC_DIR = join(CSM_PROJECT_DIR, "src");
+const CSM_SRC_DIR = join(BRAINMEMORY_PROJECT_DIR, "src");
 /** BGE 模型路径：pip 安装后用 HF 缓存，开发模式用本地 models/ */
-const CSM_EMBEDDING_MODEL =
-  process.env.CSM_EMBEDDING_MODEL ||
-  (CSM_IS_PIP_INSTALLED ? "" : join(CSM_PROJECT_DIR, "models", "bge-large-zh-v1.5"));
-const CSM_DB_PATH =
-  process.env.CSM_DB ||
-  join(homedir(), ".pi", "agent", "csm_memory.db");
+const BRAINMEMORY_EMBEDDING_MODEL =
+  process.env.BRAINMEMORY_EMBEDDING_MODEL ||
+  (CSM_IS_PIP_INSTALLED ? "" : join(BRAINMEMORY_PROJECT_DIR, "models", "bge-large-zh-v1.5"));
+const BRAINMEMORY_DB_PATH =
+  process.env.BRAINMEMORY_DB ||
+  join(homedir(), ".pi", "agent", "brainmemory.db");
 
 // 启动 sidecar 的最大等待时间（毫秒）
 const STARTUP_TIMEOUT_MS = 15_000;
@@ -77,8 +79,8 @@ const HEALTH_POLL_MS = 300;
 
 let sidecarProcess: ChildProcess | null = null;
 let sidecarAvailable = false;
-/** 最近一次 pre_prompt 返回的 memory_ids，用于 post_run 时回传强化 */
-let lastMemoryIds: number[] = [];
+/** Each workspace keeps its own injected IDs until the matching run completes. */
+const pendingMemoryIds = new Map<string, number[]>();
 
 // ═══════════════════════════════════════════════════════════════════
 // 工具函数
@@ -97,16 +99,17 @@ function ensureDbDir(dbPath: string): void {
   }
 }
 
-/** 向 CSM sidecar 发送 HTTP 请求 */
+/** 向 BrainMemory sidecar 发送 HTTP 请求 */
 async function csmFetch(
   path: string,
   body?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (BRAINMEMORY_API_KEY) headers["X-BrainMemory-API-Key"] = BRAINMEMORY_API_KEY;
   const res = await fetch(`${CSM_BASE}${path}`, {
     method: body !== undefined ? "POST" : "GET",
-    headers: body !== undefined
-      ? { "Content-Type": "application/json" }
-      : undefined,
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10_000),
   });
@@ -127,22 +130,22 @@ async function checkHealth(): Promise<boolean> {
   }
 }
 
-/** 查找可用的 Python 解释器——优先能 import membrain 的 */
+/** 查找可用的 Python 解释器——优先能 import brainmemory 的 */
 function findPython(): string {
   const isWin = process.platform === "win32";
   const candidates = isWin ? [
-    process.env.CSM_PYTHON || "",
+    process.env.BRAINMEMORY_PYTHON || "",
     "python",
     "python3",
   ] : [
-    process.env.CSM_PYTHON || "",
+    process.env.BRAINMEMORY_PYTHON || "",
     "python3",
     "python",
   ];
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
-      const result = spawnSync(candidate, ["-c", "import membrain"], {
+      const result = spawnSync(candidate, ["-c", "import brainmemory"], {
         encoding: "utf-8", timeout: 5000,
       });
       if (result.status === 0) return candidate;
@@ -151,22 +154,22 @@ function findPython(): string {
   return isWin ? "python" : "python3";
 }
 
-/** 启动 CSM sidecar 子进程 */
+/** 启动 BrainMemory sidecar 子进程 */
 function spawnSidecar(): ChildProcess {
-  ensureDbDir(CSM_DB_PATH);
+  ensureDbDir(BRAINMEMORY_DB_PATH);
   const pythonCmd = findPython();
   const proc = spawn(pythonCmd, [
-    "-m", "membrain.cli", "serve",
-    "--host", CSM_HOST,
-    "--port", String(CSM_PORT),
+    "-m", "brainmemory.cli", "serve",
+    "--host", BRAINMEMORY_HOST,
+    "--port", String(BRAINMEMORY_PORT),
   ], {
     env: {
       ...process.env,
-      CSM_DB: CSM_DB_PATH,
-      CSM_HOST: CSM_HOST,
-      CSM_PORT: String(CSM_PORT),
-      CSM_EMBEDDING_BACKEND: "local",
-      CSM_EMBEDDING_MODEL: CSM_EMBEDDING_MODEL,
+      BRAINMEMORY_DB: BRAINMEMORY_DB_PATH,
+      BRAINMEMORY_HOST: BRAINMEMORY_HOST,
+      BRAINMEMORY_PORT: String(BRAINMEMORY_PORT),
+      BRAINMEMORY_EMBEDDING_BACKEND: "local",
+      BRAINMEMORY_EMBEDDING_MODEL: BRAINMEMORY_EMBEDDING_MODEL,
       PYTHONUNBUFFERED: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -256,8 +259,8 @@ interface PiMessage {
 }
 
 /** 从消息列表中提取纯文本 */
-function extractText(messages: PiMessage[], role: string): string {
-  const msg = messages.find((m) => m.role === role);
+function extractLastText(messages: PiMessage[], role: string): string {
+  const msg = [...messages].reverse().find((m) => m.role === role);
   if (!msg?.content) return "";
   return msg.content
     .filter((c) => c.type === "text" && c.text)
@@ -265,12 +268,12 @@ function extractText(messages: PiMessage[], role: string): string {
     .join("\n");
 }
 
-/** 检查 membrain Python 包是否已安装 */
+/** 检查 brainmemory Python 包是否已安装 */
 function checkCSMInstalled(): boolean {
   try {
     const result = spawnSync(
       process.platform === "win32" ? "python" : "python3",
-      ["-c", "import membrain"],
+      ["-c", "import brainmemory"],
       { encoding: "utf-8", timeout: 5000 }
     );
     return result.status === 0;
@@ -287,22 +290,22 @@ export default async function (pi: ExtensionAPI) {
   // ── 检查 Python 后端是否已安装 ──────────────────────────────
   if (!checkCSMInstalled()) {
     console.log(
-      "[mb-memory] membrain Python package not found.\n" +
-      "  Install it first: pip install membrain\n" +
+      "[mb-memory] brainmemory Python package not found.\n" +
+      "  Install it first: pip install brainmemory\n" +
       "  Local bge-large-zh-v1.5 embeddings are required at runtime.\n" +
       "  Memory features disabled this session."
     );
     return;
   }
 
-  // ── 启动 CSM sidecar ──────────────────────────────────────────
+  // ── 启动 BrainMemory sidecar ──────────────────────────────────────────
   if (!sidecarAvailable) {
     if (await checkHealth()) {
       // Sidecar 已在运行（可能是上一个 pi 实例留下的，或手动启动的）
       sidecarAvailable = true;
       console.log("[mb-memory] connected to existing sidecar");
     } else {
-      console.log("[mb-memory] starting CSM sidecar...");
+      console.log("[mb-memory] starting BrainMemory sidecar...");
       sidecarProcess = spawnSidecar();
       const ready = await waitForSidecar(sidecarProcess);
       if (ready) {
@@ -331,21 +334,20 @@ export default async function (pi: ExtensionAPI) {
     const projectId = getProjectId(ctx.cwd);
     try {
       const result = await csmFetch("/pre_prompt", {
-        user_id: "pi-user",
         workspace_id: projectId,
         message: event.prompt,
         budget_chars: 2400,
       });
 
       // 保存 memory_ids 供 post_run 回传强化
-      lastMemoryIds = (result.memory_ids as number[]) || [];
+      pendingMemoryIds.set(projectId, (result.memory_ids as number[]) || []);
 
       const memoryContext = result.memory_context as string | undefined;
       if (memoryContext && memoryContext.trim()) {
         return {
           systemPrompt:
             event.systemPrompt +
-            "\n\n<!-- 以下为持久化记忆上下文，由 CSM Memory 系统提供 -->\n" +
+            "\n\n<!-- 以下为持久化记忆上下文，由 BrainMemory 系统提供 -->\n" +
             memoryContext +
             "\n<!-- 持久化记忆上下文结束 -->\n",
         };
@@ -363,17 +365,16 @@ export default async function (pi: ExtensionAPI) {
     const messages = event.messages as PiMessage[] | undefined;
     if (!messages) return;
 
-    const userInput = extractText(messages, "user");
-    const agentOutput = extractText(messages, "assistant");
+    const userInput = extractLastText(messages, "user");
+    const agentOutput = extractLastText(messages, "assistant");
     if (!userInput) return;
 
     try {
       const result = await csmFetch("/post_run", {
-        user_id: "pi-user",
         workspace_id: projectId,
         message: userInput,
         agent_output: agentOutput,
-        memory_ids: lastMemoryIds,
+        memory_ids: pendingMemoryIds.get(projectId) || [],
       });
 
       const committed = result.committed_ids as number[] | undefined;
@@ -383,7 +384,7 @@ export default async function (pi: ExtensionAPI) {
     } catch (err) {
       console.error(`[mb-memory] post_run error: ${(err as Error).message}`);
     } finally {
-      lastMemoryIds = [];
+      pendingMemoryIds.delete(projectId);
     }
   });
 
@@ -396,7 +397,7 @@ export default async function (pi: ExtensionAPI) {
     description: "手动存入一条持久记忆供后续对话使用",
     handler: async (args, ctx) => {
       if (!sidecarAvailable) {
-        ctx.ui.notify("CSM sidecar 未就绪，无法存入记忆", "error");
+        ctx.ui.notify("BrainMemory sidecar 未就绪，无法存入记忆", "error");
         return;
       }
       if (!args || !args.trim()) {
@@ -407,7 +408,6 @@ export default async function (pi: ExtensionAPI) {
       const projectId = getProjectId(ctx.cwd);
       try {
         const result = await csmFetch("/remember", {
-          user_id: "pi-user",
           project_id: projectId,
           content: args.trim(),
         });
@@ -419,12 +419,12 @@ export default async function (pi: ExtensionAPI) {
     },
   });
 
-  /** /csm-health — 查看记忆健康报告 */
-  pi.registerCommand("csm-health", {
-    description: "查看 MB 记忆系统的健康状态",
+  /** /bm-health — 查看记忆健康报告 */
+  pi.registerCommand("bm-health", {
+    description: "查看 BrainMemory 的健康状态",
     handler: async (_args, ctx) => {
       if (!sidecarAvailable) {
-        ctx.ui.notify("CSM sidecar 未就绪", "error");
+        ctx.ui.notify("BrainMemory sidecar 未就绪", "error");
         return;
       }
       try {
@@ -451,16 +451,16 @@ export default async function (pi: ExtensionAPI) {
     },
   });
 
-  /** /csm-search <查询> — 搜索记忆库 */
-  pi.registerCommand("csm-search", {
-    description: "搜索 MB 记忆库",
+  /** /bm-search <查询> — 搜索记忆库 */
+  pi.registerCommand("bm-search", {
+    description: "搜索 BrainMemory 记忆库",
     handler: async (args, ctx) => {
       if (!sidecarAvailable) {
-        ctx.ui.notify("CSM sidecar 未就绪", "error");
+        ctx.ui.notify("BrainMemory sidecar 未就绪", "error");
         return;
       }
       if (!args || !args.trim()) {
-        ctx.ui.notify("用法: /csm-search <查询关键词>", "info");
+        ctx.ui.notify("用法: /bm-search <查询关键词>", "info");
         return;
       }
 

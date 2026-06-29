@@ -1,195 +1,354 @@
-#  类脑记忆 — LLM Agent 记忆引擎
+# BrainMemory — 类脑记忆 / Brain-Inspired Memory for LLM Agents
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-blue" alt="Python">
   <img src="https://img.shields.io/badge/License-GPL%20v3-green" alt="License">
   <br>
-  <em>持久化记忆子系统 · BGE 语义检索 · FSRS 间隔强化 · DeepSeek 自动提取</em>
+  <em>持久化记忆 · BGE 混合检索 · 非线性连续衰减 · 间隔强化 · DeepSeek 自动提取</em><br>
+  <em>Persistent memory · BGE hybrid retrieval · nonlinear continuous decay · spaced reinforcement · DeepSeek extraction</em>
 </p>
 
+**中文** | [English](#english)
+
 ---
 
-## 1 分钟快速开始
+## 中文
+
+### 这是什么
+
+BrainMemory 是为本地单用户 LLM Agent 设计的持久化记忆引擎。它让 Agent 跨会话记住用户偏好、项目约定、可复用流程和纠正历史。
+
+```text
+存储：SQLite + FTS5
+检索：BGE-large-zh-v1.5 向量 + BM25 关键词
+衰减：dR/dt = -d·(2-R)·R
+强化：即时激活 + 基于回忆难度的间隔稳定性学习
+仲裁：DeepSeek 自动决定 ADD / UPDATE / SUPERSEDE / ARCHIVE / DELETE
+反馈：used / ignored / corrected
+```
+
+### 一分钟开始
 
 ```bash
-# 1. 一行安装
+# 安装
 pip install git+https://github.com/w3743/BrainMemory.git
 
-# 2. 启动（首次运行自动下载 BGE 模型，约 1.3GB）
+# 启动 Sidecar；首次运行会下载约 1.3 GB 的 BGE 模型
 python -m brainmemory.cli serve
 
-# 3. 浏览器打开 Web 控制台
+# 打开管理控制台
 # http://127.0.0.1:8765/admin
-
-# 如果 brainmemory 命令不可用，始终可以用 python -m brainmemory.cli
 ```
 
-> 首次运行时 `SentenceTransformer` 会自动从 HuggingFace 下载 `bge-large-zh-v1.5` 模型到本地缓存。如需离线使用，可提前下载模型目录并设置 `BRAINMEMORY_EMBEDDING_MODEL` 环境变量指向该目录。
+如果 `brainmemory` 命令不在 PATH 中，始终可以使用 `python -m brainmemory.cli`。
 
----
+### 核心能力
 
-## 这是什么
+| 能力 | 说明 |
+|---|---|
+| 非线性连续衰减 | 记忆强度使用 0–1 连续值；弱记忆衰减更快 |
+| 人脑式间隔强化 | 密集重复的长期收益较小，间隔后成功回忆显著提高稳定性 |
+| 真实使用反馈 | 被注入不等于被使用；只有回答确实引用记忆才强化 |
+| 混合检索 | BGE 稠密向量与 FTS5/BM25 关键词信号结合 |
+| 向量化计算 | 内存缓存嵌入，并使用 NumPy 批量点积计算相似度 |
+| LLM 写入仲裁 | DeepSeek 判断新增、更新、替换、归档、删除或忽略 |
+| 自动整理 | 强度低于 0.2 时归档；被替换的旧记录立即物理删除 |
+| 多框架接入 | HTTP Sidecar、pi Agent Hook、OpenClaw、Hermes |
+| Web 控制台 | 查看、检索、编辑、强化、归档和删除记忆 |
 
-类脑记忆是为 LLM Agent 设计的持久化记忆引擎。它让 Agent 能记住跨会话的用户偏好、项目约定和纠正历史。
+### 记忆模型
 
-```
-存储: SQLite + FTS5   检索: BGE 语义向量 + BM25 关键词混合
-衰减: R(t) = s₀·e^(-d·t)     强化: FSRS 间隔效应
-仲裁: DeepSeek LLM 自动提取   进化: used/ignored/corrected 反馈自适应
-```
+当前可回忆强度：
 
----
-
-## 核心特性
-
-| 特性 | 说明 |
-|------|------|
-| **类脑衰减** | 指数遗忘曲线 R(t) = s₀·e^(-d·t)，模拟人脑记忆消退 |
-| **FSRS 强化** | 被检索使用的记忆按间隔效应增强——越久没用的记忆被重新引用时增益越大 |
-| **混合检索** | BGE-large-zh-v1.5 稠密向量 + FTS5 BM25 稀疏检索，语义与精确兼顾 |
-| **LLM 仲裁** | DeepSeek 自动分析对话，决定提取/更新/合并/忽略/纠正记忆 |
-| **L1/L2/L3 分层** | 动态百分位分层，优先级自适应调整 |
-| **进化反馈** | used / ignored / corrected 三元反馈驱动记忆质量持续优化 |
-| **HTTP Sidecar** | 独立 HTTP 服务，适配 pi / LangChain / 任意 Agent 框架 |
-| **Web 控制台** | 中文管理界面，可视化管理记忆、查看健康报告 |
-
----
-
-## 记忆算法概要
-
-### 强度模型
-
-| 操作 | 公式 | 说明 |
-|------|------|------|
-| 衰减 | R = s₀ · e^(-d · t) | 每天衰减，d 默认 0.02 |
-| 强化 | g = 0.15 · (1-R)^1.4 · (1-trust) | FSRS 间隔效应，R 越低增益越大 |
-| 初始值 | strength=0.6, decay_rate=0.02 | 新记忆强度 |
-
-### 检索模型
-
-```
-score = 语义相似度 × 当前强度 R × (1 + boost)
+```text
+R(t) = 2 / (1 + (2/s₀ - 1) · e^(2dt))
 ```
 
-被纠正的记忆 boost 为负，自动降权。
+- `s₀`：上次访问后的记忆强度。
+- `d`：每条记忆独立学习的衰减率，初始值为 `0.02`。
+- 新记忆初始强度为 `0.6`。
+- 默认归档阈值为 `0.2`。
 
-### 进化反馈
+成功使用后，即时强度向 1.0 移动：
+
+```text
+R' = R + 0.35 · (1 - R)
+```
+
+长期稳定性同时根据回忆难度增长：
+
+```text
+ΔS ∝ 0.15 + 1.85 · (1 - R)^1.25
+```
+
+因此刚记住就频繁重复不会无限获得高收益；在已经有些模糊时成功回忆，会带来更大的长期稳定性提升。
+
+### 检索与反馈
+
+基础排序：
+
+```text
+score = semantic_similarity × current_strength × (1 + boost)
+```
 
 | 反馈 | 行为 |
-|------|------|
-| used（被 LLM 引用） | boost +0.05, trust 略增, 强化 |
-| ignored（检索了但没用） | boost 微降，R 越高惩罚越大 |
-| corrected（被用户纠正） | boost -0.2, trust ×0.7, decay ×1.5 |
+|---|---|
+| `used` | 强化强度与稳定性，`boost +0.05`，略微提高信任 |
+| `ignored` | 不强化，仅轻微降低 boost，并略微加快衰减 |
+| `corrected` | 降低 boost 和信任，加快衰减；需要主题匹配以避免误伤 |
 
-### 归档
+`/pre_prompt` 返回的是本轮注入候选。`/post_run` 会检查 Agent 的实际回答，只有出现足够强的内容证据才将对应记忆判定为 `used`。
 
-睡眠整理时，R < 0.01（1% 可回忆概率）的记忆自动归档，不再参与检索。
+### 60 日模拟
 
----
+![60-day memory decay simulation](tools/sim_charts/decay_60d_curves.png)
 
-## 安装
+| 使用频率 | 第 60 日强度 |
+|---|---:|
+| 从不使用 | 0.075 |
+| 仅使用一次 | 0.181 |
+| 每 30 天 | 0.390 |
+| 每 14 天 | 0.777 |
+| 每 7 天 | 0.914 |
+| 每 3 天 | 0.981 |
+| 每天 | 0.998 |
+
+完整数据位于 [`tools/sim_charts/decay_60d.csv`](tools/sim_charts/decay_60d.csv)，模拟脚本为 [`tools/simulate_longterm.py`](tools/simulate_longterm.py)。
+
+### 运行模式
+
+BrainMemory 面向本地单用户环境：
+
+- `project_id` / `workspace_id` 是唯一可选的记忆边界。
+- `user_id` 仅作为旧接口兼容字段，不参与隔离。
+- 未提供项目 ID 的记忆作为全局记忆，可被所有项目检索。
+- 记忆内容按原文保存，不进行敏感信息识别或脱敏。
+
+### 配置
+
+| 环境变量 | 说明 | 默认值 |
+|---|---|---|
+| `BRAINMEMORY_DB` | SQLite 数据库路径 | `brainmemory.db` |
+| `BRAINMEMORY_HOST` | Sidecar 监听地址 | `127.0.0.1` |
+| `BRAINMEMORY_PORT` | Sidecar 端口 | `8765` |
+| `BRAINMEMORY_API_KEY` | 可选 HTTP API Key | 空 |
+| `BRAINMEMORY_EMBEDDING_MODEL` | 本地 BGE 模型目录 | 自动下载 HF 模型 |
+| `BRAINMEMORY_DEEPSEEK_API_KEY` | DeepSeek API Key | 空 |
+| `DEEPSEEK_API_KEY` | 通用 DeepSeek API Key | 空 |
+
+### pi Agent
 
 ```bash
 pip install git+https://github.com/w3743/BrainMemory.git
+pi
 ```
 
-### 从源码安装（开发用）
+扩展会自动启动 Sidecar。可用命令：
+
+- `/remember <内容>`：手动保存记忆
+- `/bm-health`：查看健康状态
+- `/bm-search <查询>`：搜索记忆
+
+卸载：`brainmemory uninstall --yes`
+
+### CLI
+
+```bash
+python -m brainmemory.cli serve
+python -m brainmemory.cli add "内容" --project demo
+python -m brainmemory.cli search "查询" --project demo
+python -m brainmemory.cli sleep
+python -m brainmemory.cli health
+python -m brainmemory.cli demo
+python -m brainmemory.cli eval-all
+python -m brainmemory.cli uninstall --yes
+```
+
+### HTTP API
+
+| 端点 | 用途 |
+|---|---|
+| `POST /pre_prompt` | 回答前检索并生成记忆上下文 |
+| `POST /post_run` | 回答后分析反馈并提取记忆 |
+| `POST /remember` | 手动保存 |
+| `POST /context` | 获取记忆上下文 |
+| `POST /sleep` | 归档弱记忆并清理历史替换记录 |
+| `GET /health` | 服务健康检查 |
+| `GET /admin` | Web 控制台 |
+
+### 从源码开发
 
 ```bash
 git clone https://github.com/w3743/BrainMemory.git
 cd BrainMemory
 pip install -e .
+python -m pytest -q
 ```
 
-### 依赖
+主要目录：
 
-- Python 3.10+
-- `sentence-transformers`（BGE 语义嵌入）
-- `transformers`（HuggingFace 模型加载）
-- 首次运行会自动下载 `BAAI/bge-large-zh-v1.5` 模型（约 1.3GB）
-
-### 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `BRAINMEMORY_DB` | 数据库路径 | `brainmemory.db` |
-| `BRAINMEMORY_HOST` | 服务地址 | `127.0.0.1` |
-| `BRAINMEMORY_PORT` | 服务端口 | `8765` |
-| `BRAINMEMORY_EMBEDDING_MODEL` | BGE 模型路径 | HF 自动下载 |
-| `BRAINMEMORY_DEEPSEEK_API_KEY` | DeepSeek API Key | 需配置 |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key（通用） | 需配置 |
+```text
+src/brainmemory/       核心引擎、检索、演化、存储和 Sidecar
+pi-extension/          pi Agent 扩展
+tests/                 自动测试
+eval/                  评测用例
+tools/                 模拟与辅助脚本
+docs/                  API 与集成文档
+```
 
 ---
 
-## 在 pi agent 中使用
+## English
+
+### What is BrainMemory?
+
+BrainMemory is a persistent memory engine for local, single-user LLM agents. It lets an agent retain user preferences, project conventions, reusable procedures, and correction history across sessions.
+
+```text
+Storage:    SQLite + FTS5
+Retrieval:  BGE-large-zh-v1.5 vectors + BM25 keywords
+Decay:      dR/dt = -d·(2-R)·R
+Learning:   immediate activation + effort-sensitive spaced stability
+Arbitration: DeepSeek chooses ADD / UPDATE / SUPERSEDE / ARCHIVE / DELETE
+Feedback:   used / ignored / corrected
+```
+
+### Quick start
 
 ```bash
-# 1. 安装类脑记忆
 pip install git+https://github.com/w3743/BrainMemory.git
+python -m brainmemory.cli serve
 
-# 2. 启动 pi（扩展自动拉起 sidecar）
-pi
+# Open http://127.0.0.1:8765/admin
 ```
 
-pi 中的命令：
-- `/remember <内容>` — 手动存入记忆
-- `/bm-health` — 查看记忆健康报告
-- `/bm-search <查询>` — 搜索记忆库
+The first run downloads `BAAI/bge-large-zh-v1.5` (about 1.3 GB). Set `BRAINMEMORY_EMBEDDING_MODEL` to a local model directory for offline use.
 
-卸载请使用：`brainmemory uninstall --yes`
+### Highlights
 
----
+| Feature | Description |
+|---|---|
+| Nonlinear continuous decay | Memory strength is continuous from 0 to 1; weak memories decay faster |
+| Human-inspired spacing effect | Massed repetition gives a small stability gain; successful spaced recall gives a larger one |
+| Evidence-based reinforcement | Injection alone does not reinforce a memory; the answer must actually use it |
+| Hybrid retrieval | Dense BGE similarity combined with FTS5/BM25 lexical evidence |
+| Vectorized scoring | Embeddings are cached in memory and scored with NumPy batch dot products |
+| LLM write arbitration | DeepSeek decides whether to add, update, supersede, archive, delete, or ignore |
+| Automatic consolidation | Memories below `R=0.2` are archived; superseded records are deleted immediately |
+| Agent integrations | HTTP Sidecar, pi hooks, OpenClaw, and Hermes facades |
+| Web console | Inspect, search, edit, reinforce, archive, and delete memories |
 
-## 命令行
+### Memory dynamics
+
+Current retrievability is:
+
+```text
+R(t) = 2 / (1 + (2/s₀ - 1) · e^(2dt))
+```
+
+Each memory starts at strength `0.6` with its own decay rate `d=0.02`. A successful use moves activation toward 1:
+
+```text
+R' = R + 0.35 · (1 - R)
+```
+
+Long-term stability learns from retrieval effort:
+
+```text
+ΔS ∝ 0.15 + 1.85 · (1 - R)^1.25
+```
+
+This models the spacing effect: immediate repetition has limited long-term value, while a successful recall after some forgetting produces a larger stability gain.
+
+### Retrieval and feedback
+
+```text
+score = semantic_similarity × current_strength × (1 + boost)
+```
+
+| Feedback | Effect |
+|---|---|
+| `used` | Reinforce activation and stability, increase boost and trust |
+| `ignored` | Do not reinforce; slightly reduce boost and increase decay |
+| `corrected` | Reduce boost/trust and increase decay, with topic matching to avoid collateral penalties |
+
+`/pre_prompt` returns memories injected for the current run. `/post_run` compares those exact IDs with the latest agent answer. A memory is reinforced only when the answer contains sufficient evidence that it was used.
+
+### 60-day simulation
+
+![60-day memory decay simulation](tools/sim_charts/decay_60d_curves.png)
+
+| Use frequency | Strength on day 60 |
+|---|---:|
+| Never | 0.075 |
+| Once | 0.181 |
+| Every 30 days | 0.390 |
+| Every 14 days | 0.777 |
+| Weekly | 0.914 |
+| Every 3 days | 0.981 |
+| Daily | 0.998 |
+
+See [`tools/sim_charts/decay_60d.csv`](tools/sim_charts/decay_60d.csv) for the complete dataset.
+
+### Runtime model
+
+BrainMemory targets a trusted local single-user environment:
+
+- `project_id` / `workspace_id` is the only optional memory boundary.
+- `user_id` is accepted only for backward compatibility and does not isolate data.
+- Memories without a project ID are global and can be retrieved from every project.
+- Memory text is stored verbatim; no sensitive-data classification or redaction is performed.
+
+### Configuration
+
+| Environment variable | Description | Default |
+|---|---|---|
+| `BRAINMEMORY_DB` | SQLite database path | `brainmemory.db` |
+| `BRAINMEMORY_HOST` | Sidecar bind address | `127.0.0.1` |
+| `BRAINMEMORY_PORT` | Sidecar port | `8765` |
+| `BRAINMEMORY_API_KEY` | Optional HTTP API key | empty |
+| `BRAINMEMORY_EMBEDDING_MODEL` | Local BGE model directory | Hugging Face model |
+| `BRAINMEMORY_DEEPSEEK_API_KEY` | DeepSeek API key | empty |
+| `DEEPSEEK_API_KEY` | Generic DeepSeek API key | empty |
+
+### pi Agent commands
+
+- `/remember <text>` — save a memory manually
+- `/bm-health` — show memory health
+- `/bm-search <query>` — search memory
+
+### CLI
 
 ```bash
-python -m brainmemory.cli serve                           # 启动 Sidecar + Web 控制台
-python -m brainmemory.cli add "内容" --project demo        # 手动存入记忆
-python -m brainmemory.cli search "查询" --project demo     # 检索记忆
-python -m brainmemory.cli sleep                            # 触发睡眠整理
-python -m brainmemory.cli health                           # 健康报告
-python -m brainmemory.cli demo                             # 运行演示
-python -m brainmemory.cli uninstall --yes                  # 完全卸载（删数据+扩展+停服务）
-python -m brainmemory.cli eval-all                         # 完整评测
+python -m brainmemory.cli serve
+python -m brainmemory.cli add "content" --project demo
+python -m brainmemory.cli search "query" --project demo
+python -m brainmemory.cli sleep
+python -m brainmemory.cli health
+python -m brainmemory.cli eval-all
 ```
 
----
+### HTTP API
 
-## HTTP API
+| Endpoint | Purpose |
+|---|---|
+| `POST /pre_prompt` | Retrieve context before an agent answer |
+| `POST /post_run` | Analyze feedback and extract memory after a run |
+| `POST /remember` | Save a memory manually |
+| `POST /context` | Retrieve formatted memory context |
+| `POST /sleep` | Archive weak memories and clean legacy superseded records |
+| `GET /health` | Service health check |
+| `GET /admin` | Web console |
 
-| 端点 | 用途 |
-|------|------|
-| `/pre_prompt` | 提问前检索记忆 |
-| `/post_run` | 回答后提取记忆 |
-| `/remember` | 手动存入 |
-| `/sleep` | 触发睡眠整理 |
-| `/health` | 健康检查 |
-| `/admin` | Web 管理控制台 |
+### Development
 
----
-
-## 项目结构
-
-```
-├── src/brainmemory/     # 核心代码
-│   ├── engine.py         # 记忆生命周期
-│   ├── strength.py       # 强度模型（FSRS 风格）
-│   ├── store.py          # SQLite + FTS5
-│   ├── retrieval.py      # 混合检索（稠密+稀疏）
-│   ├── evolution.py      # 自适应进化
-│   ├── embedding.py      # BGE 嵌入
-│   ├── extractor.py      # DeepSeek 仲裁器
-│   ├── adapters.py       # Agent 框架适配器
-│   ├── server.py         # HTTP Sidecar + 控制台
-│   └── ...
-├── pi-extension/         # pi Agent 扩展
-├── tests/                # 测试
-├── eval/                 # 评测用例
-└── docs/                 # 文档
+```bash
+git clone https://github.com/w3743/BrainMemory.git
+cd BrainMemory
+pip install -e .
+python -m pytest -q
 ```
 
----
+## License / 许可
 
-## 许可
-
-GPL v3
+GPL-3.0-only

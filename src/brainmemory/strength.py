@@ -18,14 +18,17 @@ from .models import Memory, utc_now
 # 基础衰减率
 DECAY_RATE: float = 0.02  # 每天基础衰减 2%
 
-# 每次被使用的强化增益
+# 每次被使用的即时可回忆强度增益
 REINFORCEMENT_GAIN: float = 0.35
+
+# 稳定性学习幅度。实际增益还会随“回忆难度”自适应变化。
+STABILITY_GAIN: float = 0.45
 
 # 默认初始强度
 INITIAL_STRENGTH: float = 0.6
 
 # 归档阈值：R 低于此值的记忆自动归档
-ARCHIVE_THRESHOLD: float = 0.01
+ARCHIVE_THRESHOLD: float = 0.2
 
 
 def elapsed_days(since: datetime | None, now: datetime | None = None) -> float:
@@ -58,7 +61,7 @@ def current_strength(memory: Memory, now: datetime | None = None) -> float:
     # 使用中点近似
     # 精确解：R(t) = 2 / (1 + (2/s0 - 1) * exp(2*d*t))
     # 推导：dR/dt = -d * (2-R) * R，分离变量 → 积分
-    if s0 >= 1.0:
+    if s0 >= 2.0:
         return 1.0
     if s0 <= 0.0:
         return 0.0
@@ -68,24 +71,32 @@ def current_strength(memory: Memory, now: datetime | None = None) -> float:
     return max(0.0, min(1.0, R))
 
 
-def reinforce(memory: Memory) -> float:
-    """访问强化：从当前衰减强度 R 向 1.0 移动固定比例。
+def reinforce(memory: Memory, now: datetime | None = None) -> float:
+    """Successful recall strengthens both activation and long-term stability.
 
-    公式：new = R + REINFORCEMENT_GAIN × (1 - R)
-    每次访问将剩余距离缩短 35%，渐进逼近 1.0。
-    同时减小 decay_rate，使频繁访问的记忆遗忘更慢。
+    Immediate activation moves 35% toward 1.0. Stability follows the spacing
+    effect: massed repetition while R is high produces a small gain, while a
+    successful, effortful recall after an interval produces a larger gain.
     """
-    R = current_strength(memory)
+    R = current_strength(memory, now=now)
 
     new_strength = R + REINFORCEMENT_GAIN * (1.0 - R)
     new_strength = max(0.0, min(1.0, new_strength))
 
-    # Stability 对数增长：频繁访问的记忆遗忘更慢
+    # For R(0)=1 in our nonlinear curve, half-life is ln(3)/(2d).
     if memory.decay_rate > 0:
-        old_S = math.log(2) / memory.decay_rate
+        old_S = math.log(3) / (2.0 * memory.decay_rate)
     else:
         old_S = 30.0
-    new_S = old_S * (1.0 + REINFORCEMENT_GAIN)
-    memory.decay_rate = max(0.001, min(0.3, math.log(2) / new_S))
+
+    retrieval_effort = (1.0 - R) ** 1.25
+    spacing_multiplier = 0.15 + 1.85 * retrieval_effort
+    difficulty_multiplier = 1.15 - 0.3 * memory.trust
+    stability_growth = STABILITY_GAIN * spacing_multiplier * difficulty_multiplier
+    new_S = old_S * (1.0 + stability_growth)
+    memory.decay_rate = max(
+        0.001,
+        min(0.3, math.log(3) / (2.0 * new_S)),
+    )
 
     return new_strength

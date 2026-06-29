@@ -13,7 +13,7 @@ def test_sentence_transformers_is_runtime_dependency() -> None:
 
 def test_built_wheel_metadata_requires_sentence_transformers() -> None:
     wheel_dir = Path(".tmp/packaging_check")
-    wheels = sorted(wheel_dir.glob("membrain-*.whl"))
+    wheels = sorted(wheel_dir.glob("brainmemory-*.whl"))
     if not wheels:
         return
     with zipfile.ZipFile(wheels[-1]) as archive:

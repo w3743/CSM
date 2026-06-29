@@ -3,15 +3,15 @@
 Start the service:
 
 ```powershell
-$env:CSM_API_KEY="dev-secret"
-$env:CSM_DEEPSEEK_API_KEY="<your-deepseek-key>"
-python -m membrain.cli --db membrain_memory.db serve --host 127.0.0.1 --port 8765
+$env:BRAINMEMORY_API_KEY="dev-secret"
+$env:BRAINMEMORY_DEEPSEEK_API_KEY="<your-deepseek-key>"
+python -m brainmemory.cli --db brainmemory_memory.db serve --host 127.0.0.1 --port 8765
 ```
 
 Before starting live extraction, inspect the request locally:
 
 ```powershell
-python -m membrain.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
+python -m brainmemory.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
 ```
 
 ## Health
@@ -37,7 +37,7 @@ curl http://127.0.0.1:8765/openapi.json
 ```powershell
 curl -X POST http://127.0.0.1:8765/pre_prompt `
   -H "Content-Type: application/json" `
-  -H "X-CSM-API-Key: dev-secret" `
+  -H "X-BrainMemory-API-Key: dev-secret" `
   -d "{\"user_id\":\"u1\",\"workspace_id\":\"openclaw-demo\",\"message\":\"这个工作区的向量后端是什么？\"}"
 ```
 
@@ -56,7 +56,7 @@ Response shape:
 ```powershell
 curl -X POST http://127.0.0.1:8765/post_run `
   -H "Content-Type: application/json" `
-  -H "X-CSM-API-Key: dev-secret" `
+  -H "X-BrainMemory-API-Key: dev-secret" `
   -d "{\"user_id\":\"u1\",\"workspace_id\":\"openclaw-demo\",\"message\":\"OpenClaw demo 工作区使用 sqlite-vec 作为向量后端。\"}"
 ```
 
@@ -77,7 +77,7 @@ Remember:
 ```powershell
 curl -X POST http://127.0.0.1:8765/remember `
   -H "Content-Type: application/json" `
-  -H "X-CSM-API-Key: dev-secret" `
+  -H "X-BrainMemory-API-Key: dev-secret" `
   -d "{\"user_id\":\"u1\",\"project_id\":\"hermes\",\"content\":\"Hermes 项目回答风格：简洁，避免无关解释。\"}"
 ```
 
@@ -93,5 +93,5 @@ curl -X POST http://127.0.0.1:8765/context `
 Sleep consolidation:
 
 ```powershell
-curl -X POST http://127.0.0.1:8765/sleep -H "Content-Type: application/json" -H "X-CSM-API-Key: dev-secret" -d "{}"
+curl -X POST http://127.0.0.1:8765/sleep -H "Content-Type: application/json" -H "X-BrainMemory-API-Key: dev-secret" -d "{}"
 ```

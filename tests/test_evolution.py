@@ -1,12 +1,12 @@
 """自适应进化测试"""
 from pathlib import Path
 
-from membrain.engine import CSMEngine
-from membrain.evolution import (
+from brainmemory.engine import BrainMemoryEngine
+from brainmemory.evolution import (
     EvolutionEngine, apply_feedback, detect_feedback, inherit_from,
     DECAY_MIN, DECAY_MAX, BOOST_MIN, BOOST_MAX, TRUST_MAX,
 )
-from membrain.models import Memory, MemoryStatus, MemoryOp
+from brainmemory.models import Memory, MemoryStatus, MemoryOp
 
 
 def test_apply_feedback_used() -> None:
@@ -89,7 +89,7 @@ def test_inherit_from() -> None:
 
 
 def test_evolution_engine_flow(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "evolve.db")
+    engine = BrainMemoryEngine(tmp_path / "evolve.db")
     try:
         # 存入一条记忆
         m = engine.add_memory("项目用 bun install", project_id="test", tags="依赖")
@@ -134,7 +134,7 @@ def test_evolution_engine_flow(tmp_path) -> None:
 
 
 def test_supersede_inherits_trust(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "inherit.db")
+    engine = BrainMemoryEngine(tmp_path / "inherit.db")
     try:
         old = engine.add_memory("使用 pnpm", project_id="test", tags="依赖")
         old.trust = 0.9

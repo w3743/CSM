@@ -1,7 +1,7 @@
 from datetime import timedelta
 
-from membrain.models import Memory, MemoryStatus, utc_now
-from membrain.strength import current_strength, reinforce, ARCHIVE_THRESHOLD
+from brainmemory.models import Memory, MemoryStatus, utc_now
+from brainmemory.strength import current_strength, reinforce, ARCHIVE_THRESHOLD
 
 
 def test_strength_decays_and_reinforces() -> None:
@@ -46,13 +46,35 @@ def test_reinforce_gradual_approach() -> None:
     assert r2 > r1
 
 
+def test_spaced_recall_builds_more_stability_than_immediate_repetition() -> None:
+    now = utc_now()
+    immediate = Memory(
+        id=1,
+        content="test",
+        strength=0.8,
+        decay_rate=0.02,
+        last_accessed_at=now,
+    )
+    spaced = Memory(
+        id=2,
+        content="test",
+        strength=0.8,
+        decay_rate=0.02,
+        last_accessed_at=now - timedelta(days=20),
+    )
+
+    reinforce(immediate)
+    reinforce(spaced)
+
+    assert spaced.decay_rate < immediate.decay_rate
+
+
 def test_archive_threshold() -> None:
-    """ARCHIVE_THRESHOLD is a small positive value."""
-    assert 0 < ARCHIVE_THRESHOLD < 0.1
+    assert ARCHIVE_THRESHOLD == 0.2
 
 
 def test_constants() -> None:
-    from membrain.strength import DECAY_RATE, INITIAL_STRENGTH, REINFORCEMENT_GAIN
+    from brainmemory.strength import DECAY_RATE, INITIAL_STRENGTH, REINFORCEMENT_GAIN
     assert 0 < DECAY_RATE < 0.1
     assert 0.5 < INITIAL_STRENGTH <= 1.0
     assert 0 < REINFORCEMENT_GAIN < 1.0

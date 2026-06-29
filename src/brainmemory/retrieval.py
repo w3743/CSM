@@ -46,6 +46,10 @@ class HybridRetriever:
 
     def __init__(self, store: MemoryStore) -> None:
         self.store = store
+        self._vector_cache_version = -1
+        self._vector_cache: dict[int, list[float]] = {}
+        self._vector_positions: dict[int, int] = {}
+        self._vector_matrix = None
 
     def search(
         self,
@@ -61,10 +65,12 @@ class HybridRetriever:
         keyword_scores = self.store.keyword_search(query, limit=50)
 
         # 收集候选记忆
+        rows = self._candidate_rows(project_id, mode)
+        semantic_scores = self._semantic_scores(query_vec, rows)
         candidates: dict[int, tuple[Memory, float]] = {}
-        for row in self._candidate_rows(project_id, mode):
+        for row in rows:
             memory = Memory.from_row(row)
-            semantic = cosine(query_vec, self.store.embedding_for_row(row))
+            semantic = semantic_scores.get(int(row["id"]), 0.0)
             candidates[int(row["id"])] = (memory, semantic)
 
         # 计算最终得分：语义相似度 × 强度
@@ -73,7 +79,6 @@ class HybridRetriever:
             # 回答注入模式下跳过非活跃记忆
             if mode == RetrievalMode.ANSWER_INJECTION and memory.status != MemoryStatus.ACTIVE:
                 continue
-
             strength = current_strength(memory, now)
             keyword = max(keyword_scores.get(memory.id or -1, 0.0), _lexical_overlap(query, memory.text_for_index))
 
@@ -103,6 +108,53 @@ class HybridRetriever:
 
         results.sort(key=lambda item: item.final_score, reverse=True)
         return _dedupe_results(results)[:limit]
+
+    def _semantic_scores(self, query_vec: list[float], rows: list) -> dict[int, float]:
+        """Vectorized cosine scoring with an index-versioned embedding cache."""
+        version = self.store.index_version()
+        if version != self._vector_cache_version:
+            all_rows = self.store.conn.execute("SELECT id, embedding FROM memories").fetchall()
+            self._vector_cache = {
+                int(row["id"]): self.store.embedding_for_row(row)
+                for row in all_rows
+            }
+            self._vector_positions = {
+                memory_id: position
+                for position, memory_id in enumerate(self._vector_cache)
+            }
+            try:
+                import numpy as np
+
+                self._vector_matrix = np.asarray(
+                    list(self._vector_cache.values()),
+                    dtype=np.float32,
+                )
+            except (ImportError, TypeError, ValueError):
+                self._vector_matrix = None
+            self._vector_cache_version = version
+
+        ids = [int(row["id"]) for row in rows]
+        vectors = [self._vector_cache.get(memory_id, []) for memory_id in ids]
+        if not ids or not query_vec:
+            return {}
+
+        try:
+            import numpy as np
+
+            if self._vector_matrix is None:
+                raise ValueError("vector matrix is unavailable")
+            positions = [self._vector_positions[memory_id] for memory_id in ids]
+            matrix = self._vector_matrix[positions]
+            query = np.asarray(query_vec, dtype=np.float32)
+            if matrix.ndim != 2 or matrix.shape[1] != query.shape[0]:
+                raise ValueError("embedding dimensions do not match")
+            scores = np.maximum(0.0, matrix @ query)
+            return {memory_id: float(score) for memory_id, score in zip(ids, scores)}
+        except (ImportError, TypeError, ValueError):
+            return {
+                memory_id: cosine(query_vec, vector)
+                for memory_id, vector in zip(ids, vectors)
+            }
 
     def _candidate_rows(self, project_id: str | None, mode: RetrievalMode) -> list:
         """获取候选记忆行。写入仲裁模式下扩大候选范围。"""

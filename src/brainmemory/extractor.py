@@ -19,7 +19,6 @@ from typing import Any, Protocol
 
 from .llm_config import load_llm_config
 from .models import MemoryOp, MemoryWrite, MemoryWritePlan
-from .security import MemorySecurityPolicy
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -59,7 +58,7 @@ _SCHEMA_PROMPT = """Output format:
 Available operations: ADD, UPDATE, SUPERSEDE, ARCHIVE, DELETE, NOOP.
 - target_id is required for UPDATE, SUPERSEDE, ARCHIVE, and DELETE. It MUST be one of the "id" values from retrieved_memories. Do not invent IDs.
 - tags are free-form: use whatever labels feel natural (e.g. "preference, coding-style", "project, dependencies").
-- For ADD and SUPERSEDE, content is required and should be a self-contained memory (not a reply to the user). SUPERSEDE creates a NEW memory and marks the old one as superseded.
+- For ADD and SUPERSEDE, content is required and should be a self-contained memory (not a reply to the user). SUPERSEDE creates a NEW memory and permanently deletes the old one after inheriting its learned metadata.
 - If nothing in the conversation is worth remembering long-term, return a single NOOP."""
 
 
@@ -112,10 +111,8 @@ class JSONMemoryExtractor:
     def __init__(
         self,
         generator: Callable[[dict[str, Any]], str | dict[str, Any]],
-        security_policy: MemorySecurityPolicy | None = None,
     ) -> None:
         self.generator = generator
-        self.security_policy = security_policy or MemorySecurityPolicy()
 
     def extract(self, **kwargs: Any) -> MemoryWritePlan:
         payload = {
@@ -128,7 +125,7 @@ class JSONMemoryExtractor:
         }
         raw = self.generator(payload)
         data = json.loads(raw) if isinstance(raw, str) else raw
-        return self.security_policy.apply(parse_memory_write_plan(data))
+        return parse_memory_write_plan(data)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -149,7 +146,6 @@ class DeepSeekMemoryExtractor:
         thinking: str = "disabled",
         timeout_seconds: int = 30,
         transport: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-        security_policy: MemorySecurityPolicy | None = None,
     ) -> None:
         if not api_key:
             raise LLMExtractorNotConfigured("DeepSeek API key is required.")
@@ -162,7 +158,6 @@ class DeepSeekMemoryExtractor:
         self.thinking = thinking
         self.timeout_seconds = timeout_seconds
         self.transport = transport
-        self.security_policy = security_policy or MemorySecurityPolicy()
         self._cache: dict[str, MemoryWritePlan] = {}
 
     @classmethod
@@ -204,7 +199,7 @@ class DeepSeekMemoryExtractor:
         content = _extract_message_content(response)
         if not content.strip():
             raise ValueError("DeepSeek returned empty content.")
-        plan = self.security_policy.apply(parse_memory_write_plan(json.loads(content)))
+        plan = parse_memory_write_plan(json.loads(content))
         self._cache[cache_key] = plan
         return plan
 

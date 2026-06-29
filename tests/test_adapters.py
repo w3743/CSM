@@ -1,7 +1,7 @@
-from membrain.adapters import AgentEvent, AgentScope, CSMMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, PiAgentMemoryHook
-from membrain.engine import CSMEngine
-from membrain.extractor import JSONMemoryExtractor
-from membrain.models import MemoryOp
+from brainmemory.adapters import AgentEvent, AgentScope, BrainMemoryAdapter, HermesMemoryProvider, OpenClawMemorySidecar, PiAgentMemoryHook
+from brainmemory.engine import BrainMemoryEngine
+from brainmemory.extractor import JSONMemoryExtractor
+from brainmemory.models import MemoryOp
 
 
 def fake_add_extractor():
@@ -14,38 +14,38 @@ def fake_add_extractor():
 
 
 def test_piagent_hook_injects_and_commits_memory(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
         engine.add_memory("项目依赖管理使用 bun install。", project_id=AgentScope(user_id="u1", project_id="demo").storage_project_id, tags="依赖,bun")
-        hook = PiAgentMemoryHook(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        hook = PiAgentMemoryHook(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         state = hook.before_agent_start("安装依赖用什么命令？", {"user_id": "u1", "project_id": "demo"})
 
-        assert "bun install" in state["membrain_memory_context"]
-        assert state["membrain_memory_ids"]
-        assert state["csm_memory_context"] == state["membrain_memory_context"]
-        assert state["csm_memory_ids"] == state["membrain_memory_ids"]
+        assert "bun install" in state["brainmemory_memory_context"]
+        assert state["brainmemory_memory_ids"]
+        assert state["csm_memory_context"] == state["brainmemory_memory_context"]
+        assert state["csm_memory_ids"] == state["brainmemory_memory_ids"]
 
-        state["membrain_explicit_memories"] = ["用户希望回答先给结论，再给必要步骤。"]
+        state["brainmemory_explicit_memories"] = ["用户希望回答先给结论，再给必要步骤。"]
         final_state = hook.agent_end("安装依赖用什么命令？", "使用 bun install。", state)
-        assert "UPDATE" in final_state["membrain_write_plan"]
-        assert "ADD" in final_state["membrain_write_plan"]
-        assert final_state["membrain_committed_ids"]
-        assert final_state["csm_write_plan"] == final_state["membrain_write_plan"]
-        assert final_state["csm_committed_ids"] == final_state["membrain_committed_ids"]
+        assert "UPDATE" in final_state["brainmemory_write_plan"]
+        assert "ADD" in final_state["brainmemory_write_plan"]
+        assert final_state["brainmemory_committed_ids"]
+        assert final_state["csm_write_plan"] == final_state["brainmemory_write_plan"]
+        assert final_state["csm_committed_ids"] == final_state["brainmemory_committed_ids"]
     finally:
         engine.close()
 
 
 def test_piagent_hook_accepts_workspace_id_scope(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        hook = PiAgentMemoryHook(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        hook = PiAgentMemoryHook(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         state = hook.agent_end(
             "这个工作区默认使用 pytest 跑测试。",
             "好的。",
             {"user_id": "u1", "workspace_id": "workspace-demo"},
         )
-        assert "ADD" in state["membrain_write_plan"]
+        assert "ADD" in state["brainmemory_write_plan"]
         results = engine.search("这个工作区默认怎么跑测试？", project_id="workspace-demo")
         assert results
         assert "pytest" in results[0].memory.content
@@ -54,17 +54,17 @@ def test_piagent_hook_accepts_workspace_id_scope(tmp_path) -> None:
 
 
 def test_piagent_hook_accepts_legacy_csm_memory_ids(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
         memory = engine.add_memory("项目依赖管理使用 bun install。", project_id="demo", tags="依赖,bun")
-        hook = PiAgentMemoryHook(CSMMemoryAdapter(engine, extractor=JSONMemoryExtractor(lambda payload: {"rationale": "noop", "writes": [{"op": "NOOP"}]})))
+        hook = PiAgentMemoryHook(BrainMemoryAdapter(engine, extractor=JSONMemoryExtractor(lambda payload: {"rationale": "noop", "writes": [{"op": "NOOP"}]})))
         state = hook.agent_end(
             "安装依赖用什么命令？",
             "使用 bun install。",
             {"user_id": "u1", "project_id": "demo", "csm_memory_ids": [memory.id]},
         )
         updated = engine.store.get(memory.id or 0)
-        assert "UPDATE" in state["membrain_write_plan"]
+        assert "UPDATE" in state["brainmemory_write_plan"]
         assert updated is not None
         assert updated.access_count >= 1
     finally:
@@ -72,9 +72,9 @@ def test_piagent_hook_accepts_legacy_csm_memory_ids(tmp_path) -> None:
 
 
 def test_openclaw_sidecar_payload_flow(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         post = sidecar.handle_post_run({
             "user_id": "u1", "workspace_id": "openclaw-demo",
             "message": "记住这个工作区使用 sqlite-vec。",
@@ -93,10 +93,14 @@ def test_openclaw_sidecar_payload_flow(tmp_path) -> None:
 
 
 def test_openclaw_post_run_reinforces_used_memory(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        memory = engine.add_memory("\u6211\u53eb\u738b\u5bb6\u88d5\u3002", tags="\u540d\u5b57,\u79f0\u547c")
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        memory = engine.add_memory(
+            "\u6211\u53eb\u738b\u5bb6\u88d5\u3002",
+            project_id="user:u1",
+            tags="\u540d\u5b57,\u79f0\u547c",
+        )
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         post = sidecar.handle_post_run({
             "user_id": "u1",
             "message": "\u4ee5\u540e\u5e94\u8be5\u600e\u4e48\u79f0\u547c\u6211\uff1f",
@@ -111,12 +115,61 @@ def test_openclaw_post_run_reinforces_used_memory(tmp_path) -> None:
         engine.close()
 
 
+def test_injected_memory_is_only_reinforced_when_answer_uses_it(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
+    try:
+        injected = engine.add_memory(
+            "项目依赖管理使用 bun install。",
+            project_id="demo",
+            tags="依赖,bun",
+        )
+        unrelated = engine.add_memory(
+            "项目数据库使用 PostgreSQL。",
+            project_id="demo",
+            tags="数据库",
+        )
+        adapter = BrainMemoryAdapter(
+            engine,
+            extractor=JSONMemoryExtractor(
+                lambda payload: {"rationale": "noop", "writes": [{"op": "NOOP"}]}
+            ),
+        )
+
+        ignored_plan = adapter.observe(AgentEvent(
+            user_input="安装依赖用什么命令？",
+            agent_output="请查看项目文档。",
+            used_memory_ids=[injected.id],
+            scope=AgentScope(project_id="demo"),
+        ))
+        adapter.commit(ignored_plan, AgentScope(project_id="demo"))
+        ignored = engine.store.get(injected.id or 0)
+        untouched = engine.store.get(unrelated.id or 0)
+
+        assert [write.op for write in ignored_plan.writes] == [MemoryOp.NOOP]
+        assert ignored is not None and ignored.access_count == 0 and ignored.boost < 0
+        assert untouched is not None and untouched.boost == 0
+
+        used_plan = adapter.observe(AgentEvent(
+            user_input="安装依赖用什么命令？",
+            agent_output="使用 bun install。",
+            used_memory_ids=[injected.id],
+            scope=AgentScope(project_id="demo"),
+        ))
+        adapter.commit(used_plan, AgentScope(project_id="demo"))
+        used = engine.store.get(injected.id or 0)
+
+        assert MemoryOp.UPDATE in [write.op for write in used_plan.writes]
+        assert used is not None and used.access_count == 1
+    finally:
+        engine.close()
+
+
 def test_openclaw_irrelevant_message_does_not_inject_memory(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
         engine.add_memory("我叫王家裕。", tags="名字,身份,称呼")
         engine.add_memory("项目依赖管理使用 bun install。", project_id="demo", tags="依赖,bun")
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
 
         pre = sidecar.handle_pre_prompt({
             "user_id": "u1",
@@ -131,10 +184,10 @@ def test_openclaw_irrelevant_message_does_not_inject_memory(tmp_path) -> None:
         engine.close()
 
 
-def test_openclaw_same_workspace_different_users_do_not_share_personal_memory(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+def test_openclaw_user_id_does_not_partition_workspace_memory(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         sidecar.handle_post_run({
             "user_id": "u1",
             "workspace_id": "shared-workspace",
@@ -153,16 +206,16 @@ def test_openclaw_same_workspace_different_users_do_not_share_personal_memory(tm
         })
 
         assert "王家裕" in own["memory_context"]
-        assert other["memory_context"] == ""
-        assert other["memory_ids"] == []
+        assert "王家裕" in other["memory_context"]
+        assert other["memory_ids"]
     finally:
         engine.close()
 
 
 def test_openclaw_same_workspace_different_users_share_project_memory(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         sidecar.handle_post_run({
             "user_id": "u1",
             "workspace_id": "shared-workspace",
@@ -181,16 +234,16 @@ def test_openclaw_same_workspace_different_users_share_project_memory(tmp_path) 
         engine.close()
 
 
-def test_no_workspace_personal_memory_is_user_scoped(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+def test_no_workspace_memory_is_global_in_single_user_mode(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         sidecar.handle_post_run({
             "user_id": "u1",
             "message": "我叫王家裕。",
         })
         stored = engine.store.list_all()[0]
-        assert stored.project_id == "user:u1"
+        assert stored.project_id is None
 
         own = sidecar.handle_pre_prompt({
             "user_id": "u1",
@@ -202,22 +255,22 @@ def test_no_workspace_personal_memory_is_user_scoped(tmp_path) -> None:
         })
 
         assert "王家裕" in own["memory_context"]
-        assert other["memory_context"] == ""
-        assert other["memory_ids"] == []
+        assert "王家裕" in other["memory_context"]
+        assert other["memory_ids"]
     finally:
         engine.close()
 
 
-def test_no_workspace_project_like_memory_is_not_global(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+def test_no_workspace_project_like_memory_is_global(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         sidecar.handle_post_run({
             "user_id": "u1",
             "message": "这个项目依赖管理使用 bun install。",
         })
         stored = engine.store.list_all()[0]
-        assert stored.project_id == "user:u1"
+        assert stored.project_id is None
 
         own = sidecar.handle_pre_prompt({
             "user_id": "u1",
@@ -229,16 +282,16 @@ def test_no_workspace_project_like_memory_is_not_global(tmp_path) -> None:
         })
 
         assert "bun install" in own["memory_context"]
-        assert other["memory_context"] == ""
-        assert other["memory_ids"] == []
+        assert "bun install" in other["memory_context"]
+        assert other["memory_ids"]
     finally:
         engine.close()
 
 
 def test_no_workspace_environment_fact_is_global(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         sidecar.handle_post_run({
             "user_id": "u1",
             "message": "本机默认 Python 命令是 py -3.11。",
@@ -258,10 +311,56 @@ def test_no_workspace_environment_fact_is_global(tmp_path) -> None:
         engine.close()
 
 
-def test_project_preference_is_shared_but_personal_preference_is_private(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+def test_user_id_does_not_restrict_memory_operations(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        memory = engine.add_memory(
+            "我叫王家裕。",
+            project_id="user:u1",
+            tags="名字,身份,称呼",
+        )
+        adapter = BrainMemoryAdapter(
+            engine,
+            extractor=JSONMemoryExtractor(
+                lambda payload: {
+                    "rationale": "forged target",
+                    "writes": [{
+                        "op": "DELETE",
+                        "target_id": memory.id,
+                    }],
+                }
+            ),
+        )
+
+        plan = adapter.observe(AgentEvent(user_input="忘记名字", scope=AgentScope(user_id="u2")))
+        committed = adapter.commit(plan, AgentScope(user_id="u2"))
+
+        assert [item.id for item in committed] == [memory.id]
+        assert engine.store.get(memory.id or 0) is None
+    finally:
+        engine.close()
+
+
+def test_project_contact_information_uses_project_scope(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
+    try:
+        adapter = BrainMemoryAdapter(engine, extractor=fake_add_extractor())
+        scope = AgentScope(user_id="u1", project_id="demo")
+        plan = adapter.observe(AgentEvent(
+            user_input="项目联系人邮箱是 owner@example.com。",
+            scope=scope,
+        ))
+        committed = adapter.commit(plan, scope)
+
+        assert committed[0].project_id == "demo"
+    finally:
+        engine.close()
+
+
+def test_all_workspace_preferences_are_shared_in_single_user_mode(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
+    try:
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         sidecar.handle_post_run({
             "user_id": "u1",
             "workspace_id": "shared-workspace",
@@ -284,16 +383,16 @@ def test_project_preference_is_shared_but_personal_preference_is_private(tmp_pat
             "message": "这个项目回答代码问题有什么偏好？",
         })
 
-        assert "简洁" not in other_personal["memory_context"]
+        assert "简洁" in other_personal["memory_context"]
         assert "先给结论" in other_project["memory_context"]
     finally:
         engine.close()
 
 
-def test_english_project_preference_is_shared_but_user_preference_is_private(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+def test_english_workspace_preferences_ignore_user_id(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         sidecar.handle_post_run({
             "user_id": "u1",
             "workspace_id": "shared-workspace",
@@ -316,18 +415,18 @@ def test_english_project_preference_is_shared_but_user_preference_is_private(tmp
             "message": "What answer style does this project prefer?",
         })
 
-        assert "concise answers" not in other_personal["memory_context"]
+        assert "concise answers" in other_personal["memory_context"]
         assert "conclusion first" in other_project["memory_context"]
     finally:
         engine.close()
 
 
-def test_scoped_retrieval_ignores_legacy_global_personal_memory(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+def test_project_retrieval_includes_global_memory(tmp_path) -> None:
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
         engine.add_memory("我叫王家裕。", tags="名字,身份,称呼")
         engine.add_memory("全局项目约定：回答代码问题先给结论。", tags="项目,回答风格")
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
 
         identity = sidecar.handle_pre_prompt({
             "user_id": "u2",
@@ -340,22 +439,22 @@ def test_scoped_retrieval_ignores_legacy_global_personal_memory(tmp_path) -> Non
             "message": "回答代码问题有什么全局约定？",
         })
 
-        assert "王家裕" not in identity["memory_context"]
-        assert all("王家裕" not in item["content"] for item in identity["items"])
+        assert "王家裕" in identity["memory_context"]
+        assert any("王家裕" in item["content"] for item in identity["items"])
         assert "先给结论" in project_style["memory_context"]
     finally:
         engine.close()
 
 
 def test_negative_memory_injection_uses_positive_actionable_text(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
         memory = engine.add_memory(
             "不要用 MySQL，这个项目只用 PostgreSQL。",
             project_id=AgentScope(user_id="u1", project_id="demo").storage_project_id,
             tags="数据库,PostgreSQL",
         )
-        sidecar = OpenClawMemorySidecar(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        sidecar = OpenClawMemorySidecar(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
 
         pre = sidecar.handle_pre_prompt({
             "user_id": "u1",
@@ -371,9 +470,9 @@ def test_negative_memory_injection_uses_positive_actionable_text(tmp_path) -> No
 
 
 def test_hermes_provider_facade(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        provider = HermesMemoryProvider(CSMMemoryAdapter(engine))
+        provider = HermesMemoryProvider(BrainMemoryAdapter(engine))
         memory_id = provider.remember("Hermes 项目回答风格：简洁，避免无关解释。", user_id="u1", project_id="hermes")
         assert memory_id is not None
 
@@ -387,14 +486,14 @@ def test_hermes_provider_facade(tmp_path) -> None:
 
 
 def test_adapter_observe_extracts_memory_without_explicit_list(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        hook = PiAgentMemoryHook(CSMMemoryAdapter(engine, extractor=fake_add_extractor()))
+        hook = PiAgentMemoryHook(BrainMemoryAdapter(engine, extractor=fake_add_extractor()))
         state = hook.agent_end("以后默认用 pytest 跑这个项目的测试。", "好的，之后会使用 pytest。",
                                {"user_id": "u1", "project_id": "demo"})
         assert "ADD" in state["csm_write_plan"]
         assert state["csm_committed_ids"]
-        results = engine.search("这个项目默认怎么跑测试？", project_id=AgentScope(user_id="u1", project_id="demo").shared_project_id)
+        results = engine.search("这个项目默认怎么跑测试？", project_id="demo")
         assert results
         assert "pytest" in results[0].memory.content
     finally:
@@ -402,9 +501,9 @@ def test_adapter_observe_extracts_memory_without_explicit_list(tmp_path) -> None
 
 
 def test_adapter_duplicate_add_reinforces_instead_of_growing_store(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
-        adapter = CSMMemoryAdapter(engine, extractor=fake_add_extractor())
+        adapter = BrainMemoryAdapter(engine, extractor=fake_add_extractor())
         scope = AgentScope(project_id="demo")
         event = AgentEvent(user_input="用户偏好简洁中文回答。", scope=scope)
 
@@ -420,7 +519,7 @@ def test_adapter_duplicate_add_reinforces_instead_of_growing_store(tmp_path) -> 
 
 
 def test_adapter_passes_retrieved_memories_to_extractor_for_arbitration(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     seen_payloads = []
 
     def generator(payload):
@@ -433,7 +532,7 @@ def test_adapter_passes_retrieved_memories_to_extractor_for_arbitration(tmp_path
 
     try:
         old = engine.add_memory("User prefers to be called Jiayu.", project_id=AgentScope(project_id="demo").storage_project_id, tags="name,preference")
-        adapter = CSMMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
+        adapter = BrainMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
         plan = adapter.observe(AgentEvent(
             user_input="Do not call me Jiayu anymore; call me Mr. Jiang.",
             scope=AgentScope(project_id="demo"),
@@ -446,11 +545,11 @@ def test_adapter_passes_retrieved_memories_to_extractor_for_arbitration(tmp_path
 
 
 def test_correction_only_supersedes_relevant_used_memory(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
         name = engine.add_memory("我的名字叫王家裕。", project_id="demo", tags="名字,身份,称呼")
         dependency = engine.add_memory("项目依赖管理使用 bun install。", project_id="demo", tags="依赖,bun")
-        adapter = CSMMemoryAdapter(engine, extractor=JSONMemoryExtractor(lambda payload: {"rationale": "noop", "writes": [{"op": "NOOP"}]}))
+        adapter = BrainMemoryAdapter(engine, extractor=JSONMemoryExtractor(lambda payload: {"rationale": "noop", "writes": [{"op": "NOOP"}]}))
 
         plan = adapter.observe(AgentEvent(
             user_input="纠正一下，我叫江家裕，之前名字记错了。",
@@ -462,8 +561,7 @@ def test_correction_only_supersedes_relevant_used_memory(tmp_path) -> None:
         updated_name = engine.store.get(name.id or 0)
         updated_dependency = engine.store.get(dependency.id or 0)
         assert [memory.content for memory in committed] == ["纠正一下，我叫江家裕，之前名字记错了。"]
-        assert updated_name is not None
-        assert updated_name.status.value == "superseded"
+        assert updated_name is None
         assert updated_dependency is not None
         assert updated_dependency.status.value == "active"
     finally:
@@ -471,11 +569,11 @@ def test_correction_only_supersedes_relevant_used_memory(tmp_path) -> None:
 
 
 def test_project_correction_still_supersedes_matching_memory(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     try:
         dependency = engine.add_memory("项目依赖管理使用 pnpm install。", project_id="demo", tags="依赖,pnpm")
         style = engine.add_memory("回答技术问题时先给结论。", project_id="demo", tags="偏好,回答风格")
-        adapter = CSMMemoryAdapter(engine, extractor=JSONMemoryExtractor(lambda payload: {"rationale": "noop", "writes": [{"op": "NOOP"}]}))
+        adapter = BrainMemoryAdapter(engine, extractor=JSONMemoryExtractor(lambda payload: {"rationale": "noop", "writes": [{"op": "NOOP"}]}))
 
         plan = adapter.observe(AgentEvent(
             user_input="纠正一下，项目依赖管理已改用 bun install。",
@@ -486,8 +584,7 @@ def test_project_correction_still_supersedes_matching_memory(tmp_path) -> None:
 
         updated_dependency = engine.store.get(dependency.id or 0)
         updated_style = engine.store.get(style.id or 0)
-        assert updated_dependency is not None
-        assert updated_dependency.status.value == "superseded"
+        assert updated_dependency is None
         assert updated_style is not None
         assert updated_style.status.value == "active"
     finally:
@@ -495,7 +592,7 @@ def test_project_correction_still_supersedes_matching_memory(tmp_path) -> None:
 
 
 def test_delete_request_does_not_update_memory_before_delete(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
     seen_payloads = []
 
     def generator(payload):
@@ -507,7 +604,7 @@ def test_delete_request_does_not_update_memory_before_delete(tmp_path) -> None:
 
     try:
         memory = engine.add_memory("我的名字叫王家裕。", project_id=AgentScope(project_id="demo").storage_project_id, tags="名字,身份,称呼")
-        adapter = CSMMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
+        adapter = BrainMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
 
         plan = adapter.observe(AgentEvent(
             user_input="忘记我的名字，不要再记住这个称呼。",
@@ -525,7 +622,7 @@ def test_delete_request_does_not_update_memory_before_delete(tmp_path) -> None:
 
 
 def test_conflicting_llm_writes_keep_delete_over_update(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
 
     def generator(payload):
         target_id = payload["retrieved_memories"][0]["id"]
@@ -539,7 +636,7 @@ def test_conflicting_llm_writes_keep_delete_over_update(tmp_path) -> None:
 
     try:
         memory = engine.add_memory("用户名字叫王家裕。", project_id=AgentScope(project_id="demo").storage_project_id, tags="名字,身份")
-        adapter = CSMMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
+        adapter = BrainMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
 
         plan = adapter.observe(AgentEvent(
             user_input="请忘记我的名字。",
@@ -554,7 +651,7 @@ def test_conflicting_llm_writes_keep_delete_over_update(tmp_path) -> None:
 
 
 def test_conflicting_llm_writes_keep_supersede_over_update(tmp_path) -> None:
-    engine = CSMEngine(tmp_path / "mem.db")
+    engine = BrainMemoryEngine(tmp_path / "mem.db")
 
     def generator(payload):
         target_id = payload["retrieved_memories"][0]["id"]
@@ -568,7 +665,7 @@ def test_conflicting_llm_writes_keep_supersede_over_update(tmp_path) -> None:
 
     try:
         memory = engine.add_memory("项目依赖管理使用 pnpm install。", project_id=AgentScope(project_id="demo").storage_project_id, tags="依赖,pnpm")
-        adapter = CSMMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
+        adapter = BrainMemoryAdapter(engine, extractor=JSONMemoryExtractor(generator))
 
         plan = adapter.observe(AgentEvent(
             user_input="项目依赖管理已改用 bun install。",
@@ -578,6 +675,6 @@ def test_conflicting_llm_writes_keep_supersede_over_update(tmp_path) -> None:
         assert [write.op for write in plan.writes] == [MemoryOp.SUPERSEDE]
         committed = adapter.commit(plan, AgentScope(project_id="demo"))
         assert committed[0].content == "项目依赖管理使用 bun install。"
-        assert engine.store.get(memory.id or 0).status.value == "superseded"
+        assert engine.store.get(memory.id or 0) is None
     finally:
         engine.close()

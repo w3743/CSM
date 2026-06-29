@@ -6,13 +6,13 @@ import os
 import threading
 from http.server import HTTPServer
 
-from membrain.server import create_handler
+from brainmemory.server import create_handler
 
 
 class SidecarTestServer:
     def __init__(self, db_path, api_key: str | None = None):
-        self._old_llm_config_path = os.environ.get("CSM_LLM_CONFIG_PATH")
-        os.environ["CSM_LLM_CONFIG_PATH"] = str(db_path.with_name("llm_config.json"))
+        self._old_llm_config_path = os.environ.get("BRAINMEMORY_LLM_CONFIG_PATH")
+        os.environ["BRAINMEMORY_LLM_CONFIG_PATH"] = str(db_path.with_name("llm_config.json"))
         handler_cls, self._cleanup = create_handler(db_path, api_key=api_key)
         self.server = HTTPServer(("127.0.0.1", 0), handler_cls)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -30,9 +30,9 @@ class SidecarTestServer:
         self.server.server_close()
         self.thread.join(timeout=5)
         if self._old_llm_config_path is None:
-            os.environ.pop("CSM_LLM_CONFIG_PATH", None)
+            os.environ.pop("BRAINMEMORY_LLM_CONFIG_PATH", None)
         else:
-            os.environ["CSM_LLM_CONFIG_PATH"] = self._old_llm_config_path
+            os.environ["BRAINMEMORY_LLM_CONFIG_PATH"] = self._old_llm_config_path
 
     def post(self, path: str, payload: dict, headers: dict | None = None):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -85,11 +85,11 @@ def test_sidecar_health_and_openclaw_flow(tmp_path) -> None:
         admin_retrieval_props = spec["paths"]["/admin/retrieval/test"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
         admin_arbitration_props = spec["paths"]["/admin/arbitration/run"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
         assert "user_id" in admin_save_props
-        assert "personal/shared partition" in admin_save_props["user_id"]["description"]
+        assert "Ignored compatibility field" in admin_save_props["user_id"]["description"]
         assert "user_id" in admin_retrieval_props
-        assert "shared project partition" in admin_retrieval_props["user_id"]["description"]
+        assert "Ignored compatibility field" in admin_retrieval_props["user_id"]["description"]
         assert "user_id" in admin_arbitration_props
-        assert "AgentScope partitioning" in admin_arbitration_props["user_id"]["description"]
+        assert "Ignored compatibility field" in admin_arbitration_props["user_id"]["description"]
 
         status, post = server.post("/post_run", {
             "user_id": "u1", "workspace_id": "openclaw-demo",
@@ -151,7 +151,7 @@ def test_sidecar_api_key_auth(tmp_path) -> None:
         status, accepted = server.post("/post_run", {
             "user_id": "u1", "workspace_id": "test",
             "message": "test", "explicit_memories": ["test memory"],
-        }, headers={"X-CSM-API-Key": "secret-key"})
+        }, headers={"X-BrainMemory-API-Key": "secret-key"})
         assert status == 200
         assert "ADD" in accepted["write_plan"]
     finally:
@@ -165,7 +165,7 @@ def test_admin_console_and_core_admin_apis(tmp_path) -> None:
         status, html, content_type = server.get_text("/admin")
         assert status == 200
         assert "text/html" in content_type
-        assert "CSM" in html
+        assert "BrainMemory" in html
         assert "edit-user" in html
         assert "retrieval-user" in html
         assert "arb-user-id" in html
@@ -200,7 +200,7 @@ def test_admin_console_and_core_admin_apis(tmp_path) -> None:
             "tags": "名字,身份,称呼",
         })
         assert status == 200
-        assert scoped_saved["memory"]["project_id"] == "admin-demo:user:u1"
+        assert scoped_saved["memory"]["project_id"] == "admin-demo"
 
         status, scoped_project = server.post("/admin/memory/save", {
             "content": "项目依赖管理使用 bun install。",
@@ -257,7 +257,7 @@ def test_admin_console_and_core_admin_apis(tmp_path) -> None:
             "limit": 5,
         })
         assert status == 200
-        assert all(item["memory"]["id"] != scoped_saved["memory"]["id"] for item in manual_private_other_user["items"])
+        assert any(item["memory"]["id"] == scoped_saved["memory"]["id"] for item in manual_private_other_user["items"])
 
         status, manual_shared_other_user = server.post("/admin/retrieval/test", {
             "query": "项目依赖管理怎么安装？",
@@ -287,7 +287,7 @@ def test_admin_console_and_core_admin_apis(tmp_path) -> None:
             "limit": 3,
         })
         assert status == 200
-        assert all(item["id"] != remembered["memory_id"] for item in arb_u2["retrieved_memories"])
+        assert any(item["id"] == remembered["memory_id"] for item in arb_u2["retrieved_memories"])
 
         status, reindex = server.post("/admin/reindex-embeddings", {})
         assert status == 200
@@ -296,7 +296,7 @@ def test_admin_console_and_core_admin_apis(tmp_path) -> None:
         server.stop()
 
 
-def test_admin_user_scoped_lookup_without_project_does_not_scan_all_private_memory(tmp_path) -> None:
+def test_admin_user_id_is_ignored_without_project(tmp_path) -> None:
     server = SidecarTestServer(tmp_path / "sidecar.db")
     server.start()
     try:
@@ -306,7 +306,7 @@ def test_admin_user_scoped_lookup_without_project_does_not_scan_all_private_memo
             "tags": "名字,身份,称呼",
         })
         assert status == 200
-        assert private["memory"]["project_id"] == "user:u1"
+        assert private["memory"]["project_id"] is None
 
         status, own = server.post("/admin/retrieval/test", {
             "query": "以后应该怎么称呼我？",
@@ -324,7 +324,7 @@ def test_admin_user_scoped_lookup_without_project_does_not_scan_all_private_memo
             "limit": 5,
         })
         assert status == 200
-        assert all(item["memory"]["id"] != private["memory"]["id"] for item in other["items"])
+        assert any(item["memory"]["id"] == private["memory"]["id"] for item in other["items"])
 
         status, arb_other = server.post("/admin/arbitration/dry-run", {
             "user_input": "以后应该怎么称呼我？",
@@ -333,6 +333,6 @@ def test_admin_user_scoped_lookup_without_project_does_not_scan_all_private_memo
             "limit": 5,
         })
         assert status == 200
-        assert all(item["id"] != private["memory"]["id"] for item in arb_other["retrieved_memories"])
+        assert any(item["id"] == private["memory"]["id"] for item in arb_other["retrieved_memories"])
     finally:
         server.stop()

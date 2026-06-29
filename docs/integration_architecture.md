@@ -1,4 +1,4 @@
-# CSM Agent Integration Architecture
+# BrainMemory Integration Architecture
 
 ## Core Idea
 
@@ -65,17 +65,17 @@ For `UPDATE`, `SUPERSEDE`, `ARCHIVE`, and `DELETE`, `target_id` must be one of t
 Use `PiAgentMemoryHook` when the host runtime exposes before/after lifecycle callbacks.
 
 ```python
-from membrain import CSMEngine, CSMMemoryAdapter, PiAgentMemoryHook
+from brainmemory import BrainMemoryEngine, BrainMemoryAdapter, PiAgentMemoryHook
 
-engine = CSMEngine("piagent_memory.db")
-hook = PiAgentMemoryHook(CSMMemoryAdapter(engine))
+engine = BrainMemoryEngine("piagent_memory.db")
+hook = PiAgentMemoryHook(BrainMemoryAdapter(engine))
 
 state = hook.before_agent_start(
     user_input="安装依赖用什么命令？",
     state={"user_id": "u1", "project_id": "my-project"},
 )
 
-# Add state["membrain_memory_context"] to the agent prompt.
+# Add state["brainmemory_memory_context"] to the agent prompt.
 
 state = hook.agent_end(
     user_input="安装依赖用什么命令？",
@@ -86,7 +86,7 @@ state = hook.agent_end(
 
 Recommended hook mapping:
 
-- `before_agent_start`: retrieve L1/L2/L3 memories and inject a compact context block.
+- `before_agent_start`: retrieve the strongest relevant active memories and inject a compact context block.
 - `agent_end`: reinforce used memories and commit explicit new memories.
 - scheduled task: run `engine.sleep_consolidate()`.
 
@@ -136,9 +136,9 @@ This shape is intentionally transport-neutral. It can be exposed through an HTTP
 Use `HermesMemoryProvider` when the host runtime already has a memory provider abstraction.
 
 ```python
-from membrain import CSMEngine, CSMMemoryAdapter, HermesMemoryProvider
+from brainmemory import BrainMemoryEngine, BrainMemoryAdapter, HermesMemoryProvider
 
-provider = HermesMemoryProvider(CSMMemoryAdapter(CSMEngine("hermes_memory.db")))
+provider = HermesMemoryProvider(BrainMemoryAdapter(BrainMemoryEngine("hermes_memory.db")))
 provider.remember("Hermes 项目回答风格：简洁，避免无关解释。", user_id="u1", project_id="hermes")
 context = provider.get_context("回答风格是什么？", user_id="u1", project_id="hermes")
 ```
@@ -147,14 +147,9 @@ CSM should output short memory context, not dump the whole memory database into 
 
 ## Scope Rules
 
-Use scope to prevent memory leakage:
-
-- `user_id`: owner of personal preferences and identity.
-- `project_id` or `workspace_id`: project memory boundary.
-- `channel`: useful for OpenClaw-style multi-channel agents.
-- `session_id`: useful for tracing, but should not be the main long-term storage key.
-
-If `project_id` is missing, the adapter can fall back to `channel:user_id`.
+BrainMemory is a single-user local service. `project_id` or `workspace_id` is
+the only optional memory boundary. `user_id`, `channel`, and `session_id` are
+accepted for compatibility or tracing but do not filter memory.
 
 ## What CSM Should Remember
 
@@ -169,7 +164,6 @@ Good candidates:
 
 Poor candidates:
 
-- One-time secrets or temporary credentials.
 - Tool outputs that can be fetched from the source of truth.
 - Full chat transcripts.
 - Low-value small talk.
@@ -177,21 +171,20 @@ Poor candidates:
 
 ## Next Production Steps
 
-1. Use local semantic retrieval everywhere: install `sentence-transformers`, set `CSM_EMBEDDING_BACKEND=local`, and set `CSM_EMBEDDING_MODEL` to a local BGE-large-zh-v1.5 directory such as `models\bge-large-zh-v1.5`; then run `python -m membrain.cli reindex-embeddings`.
+1. Use local semantic retrieval everywhere: install `sentence-transformers`, set `BRAINMEMORY_EMBEDDING_BACKEND=local`, and set `BRAINMEMORY_EMBEDDING_MODEL` to a local BGE-large-zh-v1.5 directory such as `models\bge-large-zh-v1.5`; then run `python -m brainmemory.cli reindex-embeddings`.
 2. For larger memory stores, add sqlite-vec or another ANN vector index after the local embedding quality is validated.
-3. Configure `CSM_DEEPSEEK_API_KEY` or `DEEPSEEK_API_KEY` to enable `DeepSeekMemoryExtractor`.
-4. Keep `MemorySecurityPolicy` enabled so sensitive content is labeled by sensitivity without destroying the original value.
+3. Configure `BRAINMEMORY_DEEPSEEK_API_KEY` or `DEEPSEEK_API_KEY` to enable `DeepSeekMemoryExtractor`.
 5. Add real transport for OpenClaw if it expects HTTP or plugin RPC.
 6. Expand `eval/` into a larger A/B evaluation set: no memory, vector RAG, CSM without sleep, CSM full.
 
 ## Evaluation Commands
 
 ```powershell
-python -m membrain.cli eval-extractor
-python -m membrain.cli eval-retrieval
-python -m membrain.cli eval-e2e
-python -m membrain.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
-python -m membrain.cli deepseek-probe
+python -m brainmemory.cli eval-extractor
+python -m brainmemory.cli eval-retrieval
+python -m brainmemory.cli eval-e2e
+python -m brainmemory.cli deepseek-check "以后回答技术问题时，请先给结论。" --project demo
+python -m brainmemory.cli deepseek-probe
 ```
 
 The current local fixtures cover memory extraction schema behavior, retrieval quality, stale-memory suppression, temporary-information handling, and multi-turn memory lifecycle behavior. Fixture extraction uses mock LLM output and does not call DeepSeek.
@@ -201,7 +194,7 @@ The current local fixtures cover memory extraction schema behavior, retrieval qu
 Run:
 
 ```powershell
-python -m membrain.cli --db membrain_memory.db serve --host 127.0.0.1 --port 8765
+python -m brainmemory.cli --db brainmemory_memory.db serve --host 127.0.0.1 --port 8765
 ```
 
 Endpoints:

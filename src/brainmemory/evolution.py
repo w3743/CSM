@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .embedding import tokenize
 from .models import Memory, MemoryStatus, MemoryWrite, MemoryWritePlan, utc_now
 from .strength import current_strength
 
@@ -63,12 +64,13 @@ def detect_feedback(
         if not content:
             continue
 
-        tokens = set(content.split())
-        agent_tokens = set(agent_lower.split())
+        tokens = _feedback_tokens(content)
+        agent_tokens = _feedback_tokens(agent_lower)
 
         # 检测是否被 LLM 回复引用
         overlap = tokens & agent_tokens
-        used = len(overlap) >= 2 or (len(overlap) >= 1 and len(content) < 30)
+        overlap_ratio = len(overlap) / max(1, min(len(tokens), len(agent_tokens)))
+        used = len(overlap) >= 2 or (len(overlap) >= 1 and overlap_ratio >= 0.25)
 
         if was_correction and _content_contradicts(user_lower, content):
             feedback.append({"memory_id": mid, "action": "corrected", "evidence": "user correction"})
@@ -86,9 +88,40 @@ def _content_contradicts(user_text: str, memory_content: str) -> bool:
     如果用户说"改为/应该用/不再是 XX"且记忆中有对应的旧值，
     判断为矛盾。
     """
-    contradict_signals = ["改为", "改用", "应该是", "应该用", "应该是", "其实是", "不再是", "纠正", "改成",
+    contradict_signals = ["改为", "改用", "应该是", "应该用", "其实是", "不再是", "纠正", "改成",
                           "instead", "actually", "correction", "应当", "应该"]
-    return any(s in user_text for s in contradict_signals)
+    if not any(s in user_text for s in contradict_signals):
+        return False
+
+    user_tokens = _feedback_tokens(user_text)
+    memory_tokens = _feedback_tokens(memory_content)
+    if user_tokens & memory_tokens:
+        return True
+
+    domains = (
+        {"名字", "姓名", "称呼", "我叫", "name", "call"},
+        {"依赖", "安装", "包管理", "bun", "pnpm", "npm", "yarn", "pip", "install"},
+        {"数据库", "mysql", "postgresql", "sqlite", "redis", "database"},
+        {"回答", "回复", "简洁", "详细", "风格", "answer", "response", "style"},
+    )
+    return any(
+        any(term in user_text for term in domain)
+        and any(term in memory_content for term in domain)
+        for domain in domains
+    )
+
+
+def _feedback_tokens(text: str) -> set[str]:
+    """Keep distinctive terms; single CJK characters create too many false hits."""
+    stop = {
+        "这个", "那个", "项目", "用户", "使用", "应该", "可以", "已经",
+        "the", "a", "an", "is", "are", "use", "uses", "user", "project",
+    }
+    return {
+        token
+        for token in tokenize(text)
+        if token not in stop and (len(token) >= 2 or token.isascii())
+    }
 
 
 # ── 参数自适应 ─────────────────────────────────────────────
@@ -96,7 +129,7 @@ def _content_contradicts(user_text: str, memory_content: str) -> bool:
 def apply_feedback(memory: Memory, action: str) -> Memory:
     """根据反馈调整记忆的自适应参数。
 
-    FSRS 风格：反馈效果与当前可回忆概率（R）关联。
+    自适应反馈：反馈效果与当前可回忆概率（R）关联。
       - used：正确使用 → 增强 boost/trust
       - ignored：R 高时被无视 = 确实不相关，降权更多；R 低时被无视 = 可能忘了，温和处理
       - corrected：用户纠正 → 快速衰减

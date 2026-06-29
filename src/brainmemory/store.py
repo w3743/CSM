@@ -155,7 +155,21 @@ class MemoryStore:
 
     def update(self, memory: Memory) -> Memory:
         memory.updated_at = utc_now()
-        embedding = json.dumps(self.embedding.embed(memory.text_for_index))
+        existing = self.conn.execute(
+            "SELECT content, summary, tags, embedding FROM memories WHERE id=?",
+            (memory.id,),
+        ).fetchone()
+        index_changed = (
+            existing is None
+            or existing["content"] != memory.content
+            or (existing["summary"] or "") != (memory.summary or "")
+            or (existing["tags"] or "") != (memory.tags or "")
+        )
+        embedding = (
+            json.dumps(self.embedding.embed(memory.text_for_index))
+            if index_changed
+            else existing["embedding"]
+        )
         self.conn.execute(
             """
             UPDATE memories SET
@@ -177,8 +191,9 @@ class MemoryStore:
                 memory.id,
             ),
         )
-        self._sync_fts(memory.id)
-        self._bump_index_version()
+        if index_changed:
+            self._sync_fts(memory.id)
+            self._bump_index_version()
         self.conn.commit()
         return memory
 
